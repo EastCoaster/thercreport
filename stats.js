@@ -49,6 +49,34 @@ export function withinDateRange(dateStr, startStr, endStr) {
   return true;
 }
 
+// Parse a date-only string (YYYY-MM-DD) as a local Date and return YYYY-MM-DD key
+function dateKeyFromLocal(dateStr) {
+  if (!dateStr) return null;
+  let d;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, day] = dateStr.split('-').map(Number);
+    d = new Date(y, m - 1, day);
+  } else {
+    d = new Date(dateStr);
+  }
+  if (!d || Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mm}-${dd}`;
+}
+
+// Parse a date string as local Date object (handles YYYY-MM-DD as local)
+function parseDateAsLocal(dateStr) {
+  if (!dateStr) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  const d = new Date(dateStr);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /**
  * Aggregate run log data based on filters
  * @param {Object} options - Aggregation options
@@ -169,7 +197,7 @@ function buildTrendSeries(runs, events) {
     let dateKey;
     const event = events.find(e => e.id === run.eventId);
     if (event && event.date) {
-      dateKey = new Date(event.date).toISOString().split('T')[0];
+      dateKey = dateKeyFromLocal(event.date);
     } else if (run.createdAt) {
       dateKey = new Date(run.createdAt).toISOString().split('T')[0];
     } else {
@@ -300,8 +328,8 @@ export function groupRunsByEvent(runs, events) {
   const grouped = Object.values(eventMap)
     .filter(item => item.runs.length > 0)
     .sort((a, b) => {
-      const dateA = new Date(a.event.date || 0);
-      const dateB = new Date(b.event.date || 0);
+      const dateA = parseDateAsLocal(a.event.date) || new Date(0);
+      const dateB = parseDateAsLocal(b.event.date) || new Date(0);
       return dateB - dateA; // Most recent first
     });
   

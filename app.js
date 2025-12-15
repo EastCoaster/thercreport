@@ -4,17 +4,25 @@ import { parseLap, aggregateRuns, groupRunsByEvent } from './stats.js';
 import { renderLineChart } from './charts.js';
 import * as Calculators from './tools/calculators.js';
 
-// Environment
-const isDev = ['localhost', '127.0.0.1', ''].includes(window.location.hostname);
-
-// Application State
+// Global app state and UI helpers
 const state = {
   currentRoute: '',
-  data: {},
-  installPrompt: null
+  installPrompt: null,
 };
 
-// User preferences
+// Chart instances used by Analytics page
+let analyticsCharts = { best: null, avg: null, track: null };
+// Analytics UI defaults and cache
+let analyticsTrackMetric = 'avg';
+let analyticsInvertY = true;
+let analyticsDataCache = null;
+let analyticsLastFiltersKey = null;
+
+// Dev flag + chart version log guard
+const isDev = (typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) || false;
+let chartVersionLogged = false;
+
+// Preferred unit helpers (persisted)
 function getPreferredUnit() {
   try {
     return localStorage.getItem('rc_report_unit') || 'in';
@@ -24,85 +32,87 @@ function getPreferredUnit() {
 }
 
 function setPreferredUnit(unit) {
-  if (unit !== 'in' && unit !== 'mm') return;
   try {
     localStorage.setItem('rc_report_unit', unit);
+    toast('Preferred unit saved');
   } catch (e) {
-    console.warn('Failed to save preferred unit', e);
+    console.error('Failed to persist preferred unit', e);
   }
 }
 
-// Analytics cache (session scope)
-let analyticsDataCache = null;
-let analyticsLastFiltersKey = null;
-let analyticsTrackMetric = 'avg';
-let analyticsInvertY = true;
-let analyticsCharts = { best: null, avg: null, track: null };
-let chartVersionLogged = false;
-
-// Global Toast Helper
-function toast(message, duration = 3000) {
-  const toastEl = document.createElement('div');
-  toastEl.className = 'toast';
-  toastEl.textContent = message;
-  document.body.appendChild(toastEl);
-  
-  // Trigger animation
-  setTimeout(() => toastEl.classList.add('show'), 10);
-  
-  // Remove after duration
-  setTimeout(() => {
-    toastEl.classList.remove('show');
-    setTimeout(() => toastEl.remove(), 300);
-  }, duration);
+// Minimal toast helper (transient message)
+function toast(msg, timeout = 3000) {
+  try {
+    const existing = document.getElementById('app-toast');
+    if (existing) existing.remove();
+    const el = document.createElement('div');
+    el.id = 'app-toast';
+    el.style.position = 'fixed';
+    el.style.bottom = '20px';
+    el.style.left = '50%';
+    el.style.transform = 'translateX(-50%)';
+    el.style.background = 'rgba(0,0,0,0.8)';
+    el.style.color = '#fff';
+    el.style.padding = '8px 12px';
+    el.style.borderRadius = '6px';
+    el.style.zIndex = 9999;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), timeout);
+  } catch (e) {
+    console.log('TOAST:', msg);
+  }
 }
 
-// Format lap times (seconds -> string) for display
-function formatLapTime(value) {
-  if (value === null || value === undefined) return '-';
-  const seconds = Number(value);
-  if (!Number.isFinite(seconds) || seconds < 0) return '-';
-  const minutes = Math.floor(seconds / 60);
-  const secPart = (seconds - minutes * 60).toFixed(3);
-  if (minutes <= 0) return secPart;
-  const secPadded = secPart.padStart(6, '0'); // ensures 0X.YYY or XX.YYY
-  return `${minutes}:${secPadded}`;
-}
-window.formatLapTime = formatLapTime;
-
-// Parse time input into total seconds.
-// Accepts formats like "375.5" (seconds), "5:01.121" (MM:SS.mmm), and "1:05:01.121" (HH:MM:SS.mmm)
-function parseTimeInputToSeconds(value) {
-  if (value === null || value === undefined) return null;
-  const s = String(value).trim();
+// Parse time input (seconds, MM:SS(.mmm), or HH:MM:SS(.mmm)) into seconds
+function parseTimeInputToSeconds(s) {
   if (!s) return null;
-  // Pure seconds (optionally decimal)
-  if (/^\d+(?:\.\d+)?$/.test(s)) {
-    const num = parseFloat(s);
-    return Number.isFinite(num) ? num : null;
-  }
-  // MM:SS(.mmm)
-  let m = s.match(/^(\d+):(\d+)(?:\.(\d+))?$/);
-  if (m) {
-    const minutes = parseInt(m[1], 10);
-    const seconds = parseInt(m[2], 10);
-    const millis = m[3] ? parseFloat(`0.${m[3]}`) : 0;
-    if (Number.isFinite(minutes) && Number.isFinite(seconds)) {
-      return minutes * 60 + seconds + millis;
-    }
-  }
+  s = String(s).trim();
+  // Plain seconds (e.g. "12.345")
+  if (/^\d+(?:\.\d+)?$/.test(s)) return parseFloat(s);
+
   // HH:MM:SS(.mmm)
-  m = s.match(/^(\d+):(\d+):(\d+)(?:\.(\d+))?$/);
+  let m = s.match(/^(\d+):(\d{2}):(\d{2})(?:\.(\d+))?$/);
   if (m) {
     const hours = parseInt(m[1], 10);
     const minutes = parseInt(m[2], 10);
     const seconds = parseInt(m[3], 10);
-    const millis = m[4] ? parseFloat(`0.${m[4]}`) : 0;
+    const millis = m[4] ? parseFloat('0.' + m[4]) : 0;
     if ([hours, minutes, seconds].every(Number.isFinite)) {
       return hours * 3600 + minutes * 60 + seconds + millis;
     }
   }
+
+  // MM:SS(.mmm)
+  m = s.match(/^(\d+):(\d{2})(?:\.(\d+))?$/);
+  if (m) {
+    const minutes = parseInt(m[1], 10);
+    const seconds = parseInt(m[2], 10);
+    const millis = m[3] ? parseFloat('0.' + m[3]) : 0;
+    if ([minutes, seconds].every(Number.isFinite)) {
+      return minutes * 60 + seconds + millis;
+    }
+  }
+
   return null;
+}
+
+// Parse a date string from an `<input type="date">` (YYYY-MM-DD) as a local Date
+function parseDateStringAsLocal(s) {
+  if (!s) return null;
+  // If it's a date-only string (YYYY-MM-DD), construct local Date to avoid UTC shift
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(s);
+}
+
+// Format a date string for display, handling date-only inputs as local dates
+function formatDateForDisplay(s, locale = undefined, options = undefined) {
+  const d = parseDateStringAsLocal(s);
+  if (!d) return '-';
+  return locale ? d.toLocaleDateString(locale, options) : d.toLocaleDateString(undefined, options);
 }
 
 // Error Boundary
@@ -230,21 +240,7 @@ async function renderGaragePage() {
           <h2 style="margin: 0;">Garage</h2>
           <button class="btn" id="addCarBtn">+ Add Car</button>
         </div>
-        <!-- Preferences -->
-        <div class="page-content" style="margin-bottom: 16px;">
-          <h3 style="margin-bottom: 12px;">Preferences</h3>
-          <div class="form-group">
-            <label for="preferredUnitSetting">Preferred Wheel Unit</label>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <select id="preferredUnitSetting">
-                <option value="in">inches</option>
-                <option value="mm">mm</option>
-              </select>
-              <button class="btn" id="savePreferredUnit">Save</button>
-            </div>
-            <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">This controls the default unit for calculators.</div>
-          </div>
-        </div>
+        <!-- Preferences removed from Garage (moved to Settings) -->
         
         <!-- Car Form (hidden by default) -->
         <div id="carForm" style="display: none;" class="page-content" style="margin-bottom: 16px;">
@@ -2078,7 +2074,7 @@ async function deleteEvent(id) {
 // ICS Calendar Export Helper
 function createIcs(event, track) {
   // Parse the date
-  const eventDate = new Date(event.date);
+  const eventDate = parseDateStringAsLocal(event.date);
   
   // Set start time (default to 09:00 if not provided)
   const startTime = event.startTime || '09:00';
@@ -2207,7 +2203,7 @@ function downloadCsv(filename, rows) {
       const car = carsById[run.carId] || {};
     
       // Format date
-      const eventDate = event.date ? new Date(event.date).toLocaleDateString() : '';
+      const eventDate = event.date ? formatDateForDisplay(event.date) : '';
     
       // Format lap times
       const bestLap = run.bestLapNum ? run.bestLapNum.toFixed(3) : '';
@@ -2300,14 +2296,14 @@ async function renderEventDetailPage() {
       ? runLogs.filter(log => log.carId === selectedCarFilter)
       : runLogs;
     
-    // Format date
-    const eventDate = new Date(event.date);
-    const dateStr = eventDate.toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
+    // Format date (parse date-only strings as local dates to avoid timezone shift)
+    const eventDate = parseDateStringAsLocal(event.date);
+    const dateStr = eventDate ? eventDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }) : '';
     
     app.innerHTML = `
       <div class="page">
@@ -2924,6 +2920,61 @@ async function handleImportBackup(event) {
   }
 }
 
+// Load sample backup JSON bundled with the app (development-only helper)
+async function loadSampleData() {
+  try {
+    const resp = await fetch('rc-program-backup-2025-12-15T14-59-38.json');
+    if (!resp.ok) throw new Error('Failed to fetch sample backup: ' + resp.statusText);
+    const backup = await resp.json();
+
+    if (!backup || !backup.data) throw new Error('Invalid backup structure');
+
+    // Import without triggering file input logic
+    let importedCount = 0;
+
+    if (Array.isArray(backup.data.cars)) {
+      for (const item of backup.data.cars) {
+        await put('cars', item);
+        importedCount++;
+      }
+    }
+
+    if (Array.isArray(backup.data.setups)) {
+      for (const item of backup.data.setups) {
+        await put('setups', item);
+        importedCount++;
+      }
+    }
+
+    if (Array.isArray(backup.data.tracks)) {
+      for (const item of backup.data.tracks) {
+        await put('tracks', item);
+        importedCount++;
+      }
+    }
+
+    if (Array.isArray(backup.data.events)) {
+      for (const item of backup.data.events) {
+        await put('events', item);
+        importedCount++;
+      }
+    }
+
+    if (Array.isArray(backup.data.runLogs)) {
+      for (const item of backup.data.runLogs) {
+        await put('runLogs', item);
+        importedCount++;
+      }
+    }
+
+    console.log(`✅ Sample backup imported: ${importedCount} records`);
+    return importedCount;
+  } catch (error) {
+    console.error('❌ loadSampleData error:', error);
+    throw error;
+  }
+}
+
 // Make functions available globally for onclick handlers
 window.editCar = editCar;
 window.editSetup = editSetup;
@@ -2947,8 +2998,7 @@ async function renderEventsPage() {
     // Load events from database
     const events = await getAll('events');
     
-    // Sort by date, newest first
-    events.sort((a, b) => new Date(b.date) - new Date(a.date));
+    // Leave events unsorted for now; we'll sort per-section after grouping
     
     // Load tracks for the select dropdown
     const tracks = await getAll('tracks');
@@ -3019,8 +3069,8 @@ async function renderEventsPage() {
               ${await Promise.all(events.map(async event => {
                 const track = await get('tracks', event.trackId);
                 const trackName = track ? track.name : 'Unknown Track';
-                const eventDate = new Date(event.date);
-                const dateStr = eventDate.toLocaleDateString();
+                const eventDate = parseDateStringAsLocal(event.date);
+                const dateStr = eventDate ? eventDate.toLocaleDateString() : '';
                 return `
                   <div class="event-item" data-id="${event.id}">
                     <div class="event-info">
@@ -3144,8 +3194,8 @@ async function renderTracksPage() {
         <div id="trackList">
           ${tracks.length === 0 ? `
             <div class="empty-state">
-              <div class="empty-state-icon">🏁</div>
-              <p class="empty-state-text">No tracks added yet</p>
+              <div class="empty-state-icon">📍</div>
+              <p class="empty-state-text">No tracks added</p>
             </div>
           ` : `
             <div class="track-list">
@@ -3153,7 +3203,8 @@ async function renderTracksPage() {
                 <div class="track-item" data-id="${track.id}">
                   <div class="track-info">
                     <h3 class="track-name">${escapeHtml(track.name)}</h3>
-                    ${track.surface ? `<p class="track-detail">${escapeHtml(track.surface)}</p>` : ''}
+                    ${track.address ? `<div class="track-detail">${escapeHtml(track.address)}</div>` : ''}
+                    ${track.surface ? `<div class="track-detail">Surface: ${escapeHtml(track.surface)}</div>` : ''}
                   </div>
                   <div class="track-actions">
                     <button class="btn-icon" data-action="view" data-id="${track.id}" title="View">👁️</button>
@@ -3165,13 +3216,8 @@ async function renderTracksPage() {
             </div>
           `}
         </div>
-      </div>
-    `;
-    
-    // Attach event listeners
-    document.getElementById('addTrackBtn')?.addEventListener('click', () => showTrackForm());
-    document.getElementById('cancelTrackBtn')?.addEventListener('click', hideTrackForm);
-    document.getElementById('trackFormElement')?.addEventListener('submit', handleTrackSubmit);
+      `;
+      document.getElementById('trackFormElement')?.addEventListener('submit', handleTrackSubmit);
     
     // Attach action buttons
     document.querySelectorAll('.track-item .btn-icon').forEach(btn => {
@@ -3750,7 +3796,7 @@ async function renderAnalyticsPage(options = {}) {
       const fragment = document.createDocumentFragment();
       setupChanges.comparisons.forEach(comp => {
         const row = document.createElement('tr');
-        const dateStr = comp.date ? new Date(comp.date).toLocaleDateString() : '-';
+        const dateStr = comp.date ? formatDateForDisplay(comp.date) : '-';
         row.innerHTML = `
           <td>${dateStr}</td>
           <td>${escapeHtml(comp.trackName)}</td>
@@ -4206,7 +4252,7 @@ async function renderAnalyticsTrackDrilldownPage() {
                     const event = eventsById.get(run.eventId);
                     return `
                       <tr>
-                        <td>${run.eventDate ? new Date(run.eventDate).toLocaleDateString() : '-'}</td>
+                        <td>${run.eventDate ? formatDateForDisplay(run.eventDate) : '-'}</td>
                         <td>${car ? escapeHtml(car.name) : 'Unknown'}</td>
                         <td>${run.sessionType || '-'}</td>
                         <td>${run.bestLapNum !== null ? formatLapTime(run.bestLapNum) : '-'}</td>
@@ -4432,7 +4478,7 @@ function buildInsightCards(filteredRuns, analyticsContext) {
   if (bestDelta) {
     cards.push({
       title: 'Most-improved Day',
-      value: bestDelta.date ? new Date(bestDelta.date).toLocaleDateString() : 'Unknown date',
+      value: bestDelta.date ? formatDateForDisplay(bestDelta.date) : 'Unknown date',
       detail: `${bestDelta.delta.toFixed(3)}s vs prior run`
     });
   }
@@ -4473,10 +4519,25 @@ async function renderSettingsPage() {
         <div class="page-content" style="margin-bottom: 16px;">
           <h3 style="margin-bottom: 12px;">App Information</h3>
           <div class="detail-row">
-            <strong>Version:</strong> 1.0.0
+            <strong>Version:</strong> 1.1.0
           </div>
           <div class="detail-row">
             <strong>Database:</strong> rc_program v1
+          </div>
+        </div>
+        <!-- Preferences -->
+        <div class="page-content" style="margin-bottom: 16px;">
+          <h3 style="margin-bottom: 12px;">Preferences</h3>
+          <div class="form-group">
+            <label for="preferredUnitSetting">Preferred Wheel Unit</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <select id="preferredUnitSetting">
+                <option value="in">inches</option>
+                <option value="mm">mm</option>
+              </select>
+              <button class="btn" id="savePreferredUnit">Save</button>
+            </div>
+            <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">This controls the default unit for calculators.</div>
           </div>
         </div>
         
@@ -4539,6 +4600,7 @@ async function renderSettingsPage() {
           <div style="display: flex; flex-direction: column; gap: 12px;">
             <button class="btn" id="deleteDataBtn" style="background-color: #b71c1c; color: #fff;">Delete Data (keep schema)</button>
             <button class="btn" id="resetAppBtn" style="background-color: #6a1b9a; color: #fff;">Reset App (drop DB)</button>
+            <button class="btn" id="loadSampleDataBtn" style="background-color: #1565c0; color: #fff;">Load Sample Data (dev)</button>
           </div>
         </div>
         
@@ -4579,6 +4641,20 @@ async function renderSettingsPage() {
     // Developer tools
     document.getElementById('deleteDataBtn')?.addEventListener('click', handleDeleteUserData);
     document.getElementById('resetAppBtn')?.addEventListener('click', handleResetApp);
+    // Load sample JSON backup from project root (development only)
+    document.getElementById('loadSampleDataBtn')?.addEventListener('click', async () => {
+      if (!confirm('This will import sample test data from the bundled backup file and may overwrite existing data. Continue?')) return;
+      try {
+        toast('Loading sample data...');
+        await loadSampleData();
+        toast('✅ Sample data imported');
+        renderSettingsPage();
+      } catch (err) {
+        console.error('❌ Failed to load sample data:', err);
+        toast('❌ Failed to load sample data');
+      }
+    });
+    
     
   } catch (error) {
     console.error('❌ Failed to load settings:', error);
