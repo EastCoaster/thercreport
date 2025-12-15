@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="RC Report - Track your RC racing">
+  <meta name="theme-color" content="#1976d2">
+  <title>RC Report</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+</head>
+<body>
+  <!-- App Header -->
+  <header class="app-header">
+    <h1>RC Race Program</h1>
+  </header>
+
+  <!-- Main Content Container -->
+  <main id="app"></main>
+
+  <!-- Bottom Tab Navigation -->
+  <nav class="bottom-nav">
+    <a href="#/garage" class="nav-item" data-route="garage">
+      <span class="nav-icon">🏎️</span>
+      <span class="nav-label">Garage</span>
+    </a>
+    <a href="#/events" class="nav-item" data-route="events">
+      <span class="nav-icon">📅</span>
+      <span class="nav-label">Events</span>
+    </a>
+    <a href="#/tracks" class="nav-item" data-route="tracks">
+      <span class="nav-icon">🏁</span>
+      <span class="nav-label">Tracks</span>
+    </a>
+    <a href="#/analytics" class="nav-item" data-route="analytics">
+      <span class="nav-icon">📊</span>
+      <span class="nav-label">Analytics</span>
+    </a>
+    <a href="#/settings" class="nav-item" data-route="settings">
+      <span class="nav-icon">⚙️</span>
+      <span class="nav-label">Settings</span>
+    </a>
+  </nav>
+
+  <!-- Load modules -->
+  <script defer src="./vendor/chart.umd.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

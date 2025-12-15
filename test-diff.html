@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>diff.js Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 16px; }
+    #result { margin-top: 12px; padding: 10px; border-radius: 6px; }
+    .ok { background: #e6ffed; color: #046c2c; border: 1px solid #b7ebc6; }
+    .fail { background: #ffeef0; color: #86181d; border: 1px solid #f9c6c9; }
+  </style>
+</head>
+<body>
+  <h1>diff.js Test</h1>
+  <p>Open the console to see assertions. <button id="rerun">Re-run tests</button></p>
+  <div id="result">Waiting…</div>
+
+  <script type="module">
+    import { diffObjects, prettyLabelFromPath } from './diff.js';
+
+    function runTests() {
+      const resultEl = document.getElementById('result');
+      const messages = [];
+
+      const assert = (condition, msg) => {
+        console.assert(condition, msg);
+        if (!condition) messages.push(msg);
+      };
+
+      // 1) Nested change detection + modified
+      {
+        const a = { suspension: { shockOilF: '35wt' } };
+        const b = { suspension: { shockOilF: '40wt' } };
+        const diffs = diffObjects(a, b);
+        const row = diffs.find(r => r.path === 'suspension.shockOilF');
+        assert(row && row.changeType === 'modified' && row.changed, 'Nested modified detection failed');
+      }
+
+      // 2) Added vs removed detection
+      {
+        const a = {};
+        const b = { drivetrain: { pinion: '24T' } };
+        const diffs = diffObjects(a, b);
+        const row = diffs.find(r => r.path === 'drivetrain.pinion');
+        assert(row && row.changeType === 'added', 'Added detection failed');
+      }
+      {
+        const a = { drivetrain: { pinion: '24T' } };
+        const b = {};
+        const diffs = diffObjects(a, b);
+        const row = diffs.find(r => r.path === 'drivetrain.pinion');
+        assert(row && row.changeType === 'removed', 'Removed detection failed');
+      }
+
+      // 3) Normalization of empty values (null/undefined/blank)
+      {
+        const a = { tires: { prepNotes: '' } };
+        const b = { tires: { prepNotes: null } };
+        const diffs = diffObjects(a, b);
+        const row = diffs.find(r => r.path === 'tires.prepNotes');
+        assert(row && row.changeType === 'same', 'Empty normalization failed ("" vs null)');
+      }
+      {
+        const a = { tires: { prepNotes: '  ' } };
+        const b = { tires: { prepNotes: '' } };
+        const diffs = diffObjects(a, b);
+        const row = diffs.find(r => r.path === 'tires.prepNotes');
+        assert(row && row.changeType === 'same', 'Whitespace trim normalization failed');
+      }
+
+      // 4) prettyLabel mapping and fallback
+      {
+        const label = prettyLabelFromPath('suspension.shockOilF');
+        assert(label === 'Shock Oil (Front)', 'prettyLabel mapping failed');
+      }
+      {
+        const label = prettyLabelFromPath('electronics.escProfile');
+        assert(label === 'ESC Profile', 'prettyLabel map known key failed');
+      }
+      {
+        const label = prettyLabelFromPath('customFieldX');
+        assert(label === 'Custom fieldx', 'prettyLabel fallback failed');
+      }
+
+      const passed = messages.length === 0;
+      if (passed) {
+        console.log('✅ All tests passed');
+        resultEl.textContent = 'All tests passed';
+        resultEl.className = 'ok';
+      } else {
+        console.error('❌ Tests failed', messages);
+        resultEl.textContent = 'Tests failed: ' + messages.join('; ');
+        resultEl.className = 'fail';
+      }
+    }
+
+    window.runTests = runTests;
+    document.getElementById('rerun').addEventListener('click', runTests);
+    runTests();
+  </script>
+</body>
+</html>
