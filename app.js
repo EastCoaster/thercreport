@@ -108,6 +108,25 @@ function parseDateStringAsLocal(s) {
   return new Date(s);
 }
 
+// Format lap time in seconds to human readable string
+function formatLapTime(val) {
+  if (val === null || val === undefined) return '-';
+  const n = Number(val);
+  if (!Number.isFinite(n)) return '-';
+  // If minutes
+  if (n >= 60) {
+    const minutes = Math.floor(n / 60);
+    const secs = n - minutes * 60;
+    const secInt = Math.floor(secs);
+    const millis = Math.round((secs - secInt) * 1000);
+    return `${minutes}:${String(secInt).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
+  }
+  // Seconds with milliseconds
+  const seconds = Math.floor(n);
+  const millis = Math.round((n - seconds) * 1000);
+  return `${seconds}.${String(millis).padStart(3, '0')}s`;
+}
+
 // Format a date string for display, handling date-only inputs as local dates
 function formatDateForDisplay(s, locale = undefined, options = undefined) {
   const d = parseDateStringAsLocal(s);
