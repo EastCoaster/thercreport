@@ -360,6 +360,19 @@ async function renderGaragePage() {
         }
       });
     });
+
+    // Make the whole car item clickable to view the car, but ignore clicks
+    // that originate from the action buttons area so those still perform
+    // their individual actions.
+    document.querySelectorAll('.car-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.car-actions')) return; // allow action buttons
+        const id = item.dataset.id;
+        if (id) window.location.hash = `#/car/${id}`;
+      });
+      // Improve affordance
+      item.style.cursor = 'pointer';
+    });
     
   } catch (error) {
     console.error('❌ Failed to load garage:', error);
@@ -621,6 +634,49 @@ async function renderCarDetailPage() {
     // Load tracks for the select dropdown
     const tracks = await getAll('tracks');
     tracks.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    // Load analytics/run data to compute car-specific statistics
+    let carStats = null;
+    try {
+      const analytics = await loadAnalyticsData();
+      const enrichedRuns = analytics.enrichedRuns || [];
+
+      // Filter runs for this car
+      const carRuns = enrichedRuns.filter(r => r.carId === carId);
+
+      // Use aggregateRuns helper to compute KPIs
+      const agg = aggregateRuns({ runs: carRuns, events: analytics.events || [], tracks: analytics.tracks || [], cars: analytics.cars || [], filters: { carId } });
+      const kpis = agg.kpis || {};
+
+      // Parse finish positions into numbers where possible (e.g., '1st', 'P2' -> 2)
+      const parsePositionToNumber = (pos) => {
+        if (!pos) return null;
+        const m = String(pos).match(/(\d+)/);
+        return m ? parseInt(m[1], 10) : null;
+      };
+
+      const positions = carRuns.map(r => parsePositionToNumber(r.position)).filter(n => Number.isFinite(n));
+      const bestFinishNum = positions.length > 0 ? Math.min(...positions) : null;
+      const podiumCount = positions.filter(n => n <= 3).length;
+
+      const ordinal = (n) => {
+        if (!n && n !== 0) return '';
+        const s = ["th","st","nd","rd"], v = n % 100;
+        return n + (s[(v-20)%10] || s[v] || s[0]);
+      };
+
+      carStats = {
+        runCount: kpis.runCount || 0,
+        raceCount: kpis.eventCount || 0,
+        bestLap: kpis.bestLapMin || null,
+        avgLap: kpis.avgLapMean || null,
+        bestFinish: bestFinishNum ? ordinal(bestFinishNum) : null,
+        podiumCount
+      };
+    } catch (err) {
+      console.warn('Failed to compute car stats', err);
+      carStats = null;
+    }
     
     app.innerHTML = `
       <div class="page">
@@ -647,6 +703,19 @@ async function renderCarDetailPage() {
             <strong>ESC:</strong> ${car.esc ? escapeHtml(car.esc) : '-'}
           </div>
         </div>
+        
+        <!-- Car Statistics -->
+        ${carStats ? `
+          <div class="page-content" style="margin-bottom: 24px;">
+            <h3 style="margin-top: 0;">Statistics</h3>
+            <div class="detail-row"><strong>Number of Runs:</strong> ${carStats.runCount}</div>
+            <div class="detail-row"><strong>Number of Races:</strong> ${carStats.raceCount}</div>
+            <div class="detail-row"><strong>Best Lap:</strong> ${carStats.bestLap ? carStats.bestLap.toFixed ? carStats.bestLap.toFixed(3) + ' s' : carStats.bestLap : '-'}</div>
+            <div class="detail-row"><strong>Average Lap:</strong> ${carStats.avgLap ? carStats.avgLap.toFixed(3) + ' s' : '-'}</div>
+            <div class="detail-row"><strong>Best Finish:</strong> ${carStats.bestFinish || '-'}</div>
+            <div class="detail-row"><strong>Podium Finishes:</strong> ${carStats.podiumCount || 0}</div>
+          </div>
+        ` : ''}
         
         <!-- Setups Section -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
@@ -2942,7 +3011,7 @@ async function handleImportBackup(event) {
 // Load sample backup JSON bundled with the app (development-only helper)
 async function loadSampleData() {
   try {
-    const resp = await fetch('rc-program-backup-2025-12-15T14-59-38.json');
+    const resp = await fetch('rc-program-backup-2025-12-15T23-48-14.json');
     if (!resp.ok) throw new Error('Failed to fetch sample backup: ' + resp.statusText);
     const backup = await resp.json();
 
@@ -4538,7 +4607,7 @@ async function renderSettingsPage() {
         <div class="page-content" style="margin-bottom: 16px;">
           <h3 style="margin-bottom: 12px;">App Information</h3>
           <div class="detail-row">
-            <strong>Version:</strong> 1.1.0
+            <strong>Version:</strong> 1.1.1
           </div>
           <div class="detail-row">
             <strong>Database:</strong> rc_program v1
@@ -4691,6 +4760,36 @@ function renderToolsPage() {
 
       <div class="page-content" style="margin-bottom:16px;">
         <h3>Gear Ratio / Rollout Calculator</h3>
+        <p style="color: var(--text-secondary);">Simple calculator: enter a pinion and spur to compute final drive ratio and rollout for a single-stage setup.</p>
+        <form id="gearSimpleForm">
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+            <div class="form-group">
+              <label>Pinion</label>
+              <input id="simplePinion" type="number" min="1" placeholder="e.g. 13">
+            </div>
+            <div class="form-group">
+              <label>Spur</label>
+              <input id="simpleSpur" type="number" min="1" placeholder="e.g. 65">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Wheel Diameter</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input id="simpleWheelDiameter" type="number" min="0.1" step="0.01" placeholder="e.g. 2.6">
+              <select id="simpleUnit" title="Unit" style="width:110px;">
+                <option value="in" selected>inches</option>
+                <option value="mm">mm</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" type="submit">Calculate</button>
+            <button class="btn btn-secondary" type="button" id="simpleReset">Reset</button>
+          </div>
+        </form>
+        <div id="gearSimpleResult" style="margin-top:12px;"></div>
+        <hr style="margin:16px 0;">
+        <h3>Compare - Gear Ratio / Rollout Calculator</h3>
         <p style="color: var(--text-secondary);">Enter your before and after gearing and wheel diameter to compare final drive and rollout.</p>
         <form id="gearForm">
           <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
@@ -4778,10 +4877,13 @@ function renderToolsPage() {
     const pref = getPreferredUnit();
     const gearUnitElInit = document.getElementById('gearUnit');
     const topUnitElInit = document.getElementById('topUnit');
+    const simpleUnitElInit = document.getElementById('simpleUnit');
     const gearInputInit = document.getElementById('gearWheelDiameter');
     const topInputInit = document.getElementById('wheelDiameter');
+    const simpleInputInit = document.getElementById('simpleWheelDiameter');
     if (gearUnitElInit) gearUnitElInit.value = pref;
     if (topUnitElInit) topUnitElInit.value = pref;
+    if (simpleUnitElInit) simpleUnitElInit.value = pref;
     if (gearInputInit) {
       if (pref === 'in') { gearInputInit.placeholder = 'e.g. 2.6'; gearInputInit.step = '0.01'; }
       else { gearInputInit.placeholder = 'e.g. 66'; gearInputInit.step = '1'; }
@@ -4789,6 +4891,10 @@ function renderToolsPage() {
     if (topInputInit) {
       if (pref === 'in') { topInputInit.placeholder = 'e.g. 2.6'; topInputInit.step = '0.01'; }
       else { topInputInit.placeholder = 'e.g. 66'; topInputInit.step = '1'; }
+    }
+    if (simpleInputInit) {
+      if (pref === 'in') { simpleInputInit.placeholder = 'e.g. 2.6'; simpleInputInit.step = '0.01'; }
+      else { simpleInputInit.placeholder = 'e.g. 66'; simpleInputInit.step = '1'; }
     }
   })();
 
@@ -4838,6 +4944,39 @@ function renderToolsPage() {
     document.getElementById('afterSpur').value = '';
     document.getElementById('gearWheelDiameter').value = '';
     document.getElementById('gearResult').innerHTML = '';
+  });
+
+  // Simple gear calculator handlers
+  document.getElementById('gearSimpleForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const pinion = Number(document.getElementById('simplePinion').value) || null;
+    const spur = Number(document.getElementById('simpleSpur').value) || null;
+    const wheelDiameterRaw = document.getElementById('simpleWheelDiameter').value;
+    const wheelDiameter = wheelDiameterRaw ? Number(wheelDiameterRaw) : null;
+    const unit = document.getElementById('simpleUnit') ? document.getElementById('simpleUnit').value : 'in';
+    const wheelDiameterMm = (wheelDiameter && unit === 'in') ? wheelDiameter * 25.4 : wheelDiameter;
+
+    const out = document.getElementById('gearSimpleResult');
+    if (!pinion || !spur) {
+      out.innerHTML = '<div class="data-quality-hint">Enter valid pinion and spur values.</div>';
+      return;
+    }
+
+    const ratio = window.Calculators.computeGearRatio(pinion, spur);
+    const rolloutMm = ratio && wheelDiameterMm ? window.Calculators.computeRolloutMm(ratio, wheelDiameterMm) : null;
+    const rolloutIn = rolloutMm ? rolloutMm / 25.4 : null;
+
+    out.innerHTML = `
+      <div class="detail-row"><strong>Final Drive (motor revs per wheel rev):</strong> ${ratio ? ratio.toFixed(3) : 'N/A'}</div>
+      <div class="detail-row"><strong>Rollout:</strong> ${unit === 'in' ? (rolloutIn ? rolloutIn.toFixed(3) + ' in' : 'N/A') : (rolloutMm ? rolloutMm.toFixed(2) + ' mm' : 'N/A')}</div>
+    `;
+  });
+
+  document.getElementById('simpleReset').addEventListener('click', () => {
+    document.getElementById('simplePinion').value = '';
+    document.getElementById('simpleSpur').value = '';
+    document.getElementById('simpleWheelDiameter').value = '';
+    document.getElementById('gearSimpleResult').innerHTML = '';
   });
 
   document.getElementById('topSpeedForm').addEventListener('submit', (e) => {

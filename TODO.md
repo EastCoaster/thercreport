@@ -11,7 +11,7 @@ This file tracks upcoming tasks for the project. The authoritative managed TODO 
 - [ ] Add automated tests for run log submit and edit flows
 - [ ] Review PWA manifest and icons
 - [ ] Commit changes and bump version
- - [ ] Calculators
+- [ ] Calculators
 
 Tips:
 - Update this file or the managed todo list when you complete items.
