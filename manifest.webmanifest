@@ -1,6 +1,6 @@
 {
-  "name": "RC Race Program",
-  "short_name": "RC Program",
+  "name": "The RC Report",
+  "short_name": "RC Report",
   "description": "Track your RC racing adventures",
   "start_url": "./index.html#/garage",
   "display": "standalone",

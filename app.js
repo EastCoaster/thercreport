@@ -2,6 +2,7 @@ import { dbInit, add, put, get, getAll, remove, generateId, queryIndex, normaliz
 import { diffObjects } from './diff.js';
 import { parseLap, aggregateRuns, groupRunsByEvent } from './stats.js';
 import { renderLineChart } from './charts.js';
+import * as Calculators from './tools/calculators.js';
 
 // Environment
 const isDev = ['localhost', '127.0.0.1', ''].includes(window.location.hostname);
@@ -12,6 +13,24 @@ const state = {
   data: {},
   installPrompt: null
 };
+
+// User preferences
+function getPreferredUnit() {
+  try {
+    return localStorage.getItem('rc_report_unit') || 'in';
+  } catch (e) {
+    return 'in';
+  }
+}
+
+function setPreferredUnit(unit) {
+  if (unit !== 'in' && unit !== 'mm') return;
+  try {
+    localStorage.setItem('rc_report_unit', unit);
+  } catch (e) {
+    console.warn('Failed to save preferred unit', e);
+  }
+}
 
 // Analytics cache (session scope)
 let analyticsDataCache = null;
@@ -110,6 +129,7 @@ const routes = {
   '/track': renderTrackDetailPage,  // Dynamic route for /track/{id}
   '/event': renderEventDetailPage,  // Dynamic route for /event/{id}
   '/compare': renderComparePage  // Compare page with query params
+  ,'/tools': renderToolsPage
 };
 
 // Debounce utility
@@ -209,6 +229,21 @@ async function renderGaragePage() {
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
           <h2 style="margin: 0;">Garage</h2>
           <button class="btn" id="addCarBtn">+ Add Car</button>
+        </div>
+        <!-- Preferences -->
+        <div class="page-content" style="margin-bottom: 16px;">
+          <h3 style="margin-bottom: 12px;">Preferences</h3>
+          <div class="form-group">
+            <label for="preferredUnitSetting">Preferred Wheel Unit</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <select id="preferredUnitSetting">
+                <option value="in">inches</option>
+                <option value="mm">mm</option>
+              </select>
+              <button class="btn" id="savePreferredUnit">Save</button>
+            </div>
+            <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">This controls the default unit for calculators.</div>
+          </div>
         </div>
         
         <!-- Car Form (hidden by default) -->
@@ -433,7 +468,7 @@ async function deleteCar(id) {
 // Image utilities
 let currentCarImage = null;
 
-async function resizeImage(file, maxWidth = 400, quality = 0.8) {
+async function resizeImage(file, maxWidth = 320, quality = 0.8) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -443,9 +478,15 @@ async function resizeImage(file, maxWidth = 400, quality = 0.8) {
         let width = img.width;
         let height = img.height;
         
-        if (width > maxWidth) {
-          height = (height * maxWidth) / width;
-          width = maxWidth;
+        // Scale to fit within maxWidth x maxWidth maintaining aspect ratio
+        if (width > maxWidth || height > maxWidth) {
+          if (width > height) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
+          } else {
+            width = (width * maxWidth) / height;
+            height = maxWidth;
+          }
         }
         
         canvas.width = width;
@@ -487,7 +528,7 @@ function setupImageCapture() {
     if (!file) return;
     
     try {
-      const resizedDataUrl = await resizeImage(file, 400, 0.75);
+      const resizedDataUrl = await resizeImage(file, 320, 0.75);
       currentCarImage = resizedDataUrl;
       preview.innerHTML = `<img src="${resizedDataUrl}" style="max-width: 100%; max-height: 200px; border-radius: 6px; box-shadow: var(--shadow-sm);">`;
       if (removeBtn) {
@@ -4511,6 +4552,17 @@ async function renderSettingsPage() {
         </div>
       </div>
     `;
+
+    // Initialize preferences control
+    const prefSelect = document.getElementById('preferredUnitSetting');
+    if (prefSelect) {
+      prefSelect.value = getPreferredUnit();
+      document.getElementById('savePreferredUnit').addEventListener('click', () => {
+        const val = prefSelect.value;
+        setPreferredUnit(val);
+        toast('Preferred unit saved');
+      });
+    }
     
     // Attach event listener for install button if available
     if (state.installPrompt) {
@@ -4532,6 +4584,244 @@ async function renderSettingsPage() {
     console.error('❌ Failed to load settings:', error);
     app.innerHTML = '<div class="page"><p>Failed to load settings. Please try again.</p></div>';
     toast('Failed to load settings');
+  }
+}
+
+// Tools Page
+function renderToolsPage() {
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="page">
+      <h2>Tools</h2>
+
+      <div class="page-content" style="margin-bottom:16px;">
+        <h3>Gear Ratio / Rollout Calculator</h3>
+        <p style="color: var(--text-secondary);">Enter your before and after gearing and wheel diameter to compare final drive and rollout.</p>
+        <form id="gearForm">
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+            <div class="form-group">
+              <label>Before Pinion</label>
+              <input id="beforePinion" type="number" min="1" placeholder="e.g. 13">
+            </div>
+            <div class="form-group">
+              <label>Before Spur</label>
+              <input id="beforeSpur" type="number" min="1" placeholder="e.g. 65">
+            </div>
+            <div class="form-group">
+              <label>After Pinion</label>
+              <input id="afterPinion" type="number" min="1" placeholder="e.g. 14">
+            </div>
+            <div class="form-group">
+              <label>After Spur</label>
+              <input id="afterSpur" type="number" min="1" placeholder="e.g. 65">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Wheel Diameter</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input id="gearWheelDiameter" type="number" min="0.1" step="0.01" placeholder="e.g. 2.6">
+              <select id="gearUnit" title="Unit" style="width:110px;">
+                <option value="in" selected>inches</option>
+                <option value="mm">mm</option>
+              </select>
+            </div>
+            <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">Default: inches. Enter wheel diameter with mounted tire.</div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" type="submit">Compare Gearing</button>
+            <button class="btn btn-secondary" type="button" id="gearReset">Reset</button>
+          </div>
+        </form>
+        <div id="gearResult" style="margin-top:12px;"></div>
+      </div>
+
+      <div class="page-content">
+        <h3>Top Speed Estimator</h3>
+        <p style="color: var(--text-secondary);">Estimate theoretical top speed for brushless electric cars.</p>
+        <form id="topSpeedForm">
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+            <div class="form-group">
+              <label>Motor KV</label>
+              <input id="kv" type="number" step="1" min="1" placeholder="e.g. 4000">
+            </div>
+            <div class="form-group">
+              <label>Battery Voltage (V)</label>
+              <input id="voltage" type="number" step="0.1" min="1" placeholder="e.g. 14.8">
+            </div>
+            <div class="form-group">
+              <label>Final Drive Ratio (motor revs per wheel rev)</label>
+              <input id="finalDrive" type="number" step="0.01" min="0.01" placeholder="e.g. 4.5">
+            </div>
+            <div class="form-group">
+              <label>Wheel Diameter</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input id="wheelDiameter" type="number" step="0.01" min="0.1" placeholder="e.g. 2.6">
+                <select id="topUnit" title="Unit" style="width:110px;">
+                  <option value="in" selected>inches</option>
+                  <option value="mm">mm</option>
+                </select>
+              </div>
+              <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">Default: inches. Enter wheel diameter with mounted tire.</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Drivetrain Efficiency (0-1)</label>
+            <input id="efficiency" type="number" step="0.01" min="0.5" max="1" value="0.95">
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" type="submit">Estimate Top Speed</button>
+            <button class="btn btn-secondary" type="button" id="topReset">Reset</button>
+          </div>
+        </form>
+        <div id="topSpeedResult" style="margin-top:12px;"></div>
+      </div>
+    </div>
+  `;
+
+  // Initialize unit selectors from preferences
+  (function initUnitSelectors(){
+    const pref = getPreferredUnit();
+    const gearUnitElInit = document.getElementById('gearUnit');
+    const topUnitElInit = document.getElementById('topUnit');
+    const gearInputInit = document.getElementById('gearWheelDiameter');
+    const topInputInit = document.getElementById('wheelDiameter');
+    if (gearUnitElInit) gearUnitElInit.value = pref;
+    if (topUnitElInit) topUnitElInit.value = pref;
+    if (gearInputInit) {
+      if (pref === 'in') { gearInputInit.placeholder = 'e.g. 2.6'; gearInputInit.step = '0.01'; }
+      else { gearInputInit.placeholder = 'e.g. 66'; gearInputInit.step = '1'; }
+    }
+    if (topInputInit) {
+      if (pref === 'in') { topInputInit.placeholder = 'e.g. 2.6'; topInputInit.step = '0.01'; }
+      else { topInputInit.placeholder = 'e.g. 66'; topInputInit.step = '1'; }
+    }
+  })();
+
+  // Handlers
+  document.getElementById('gearForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const beforePinion = Number(document.getElementById('beforePinion').value) || null;
+    const beforeSpur = Number(document.getElementById('beforeSpur').value) || null;
+    const afterPinion = Number(document.getElementById('afterPinion').value) || null;
+    const afterSpur = Number(document.getElementById('afterSpur').value) || null;
+    const wheelDiameterRaw = document.getElementById('gearWheelDiameter').value;
+    const wheelDiameter = wheelDiameterRaw ? Number(wheelDiameterRaw) : null;
+    const gearUnit = document.getElementById('gearUnit') ? document.getElementById('gearUnit').value : 'in';
+    const wheelDiameterMm = (wheelDiameter && gearUnit === 'in') ? wheelDiameter * 25.4 : wheelDiameter;
+
+    const beforeSpec = { pinion: beforePinion, spur: beforeSpur, wheelDiameterMm: wheelDiameterMm };
+    const afterSpec = { pinion: afterPinion, spur: afterSpur, wheelDiameterMm: wheelDiameterMm };
+
+    const result = window.Calculators.compareGearing(beforeSpec, afterSpec);
+    const out = document.getElementById('gearResult');
+    if (!result || !result.before.finalDriveRatio || !result.after.finalDriveRatio) {
+      out.innerHTML = '<div class="data-quality-hint">Enter valid pinion and spur values for both before and after.</div>';
+      return;
+    }
+
+    // Show rollout in preferred unit (inches default)
+    const beforeRolloutMm = result.before.rolloutMm;
+    const afterRolloutMm = result.after.rolloutMm;
+    const beforeRolloutIn = beforeRolloutMm ? (beforeRolloutMm / 25.4) : null;
+    const afterRolloutIn = afterRolloutMm ? (afterRolloutMm / 25.4) : null;
+
+    const rolloutLabelFirst = gearUnit === 'in' ? 'inches' : 'mm';
+    out.innerHTML = `
+      <div class="detail-row"><strong>Before Final Drive:</strong> ${result.before.finalDriveRatio.toFixed(3)}</div>
+      <div class="detail-row"><strong>After Final Drive:</strong> ${result.after.finalDriveRatio.toFixed(3)}</div>
+      <div class="detail-row"><strong>Final Drive Change:</strong> ${result.change.finalDrivePercent !== null ? result.change.finalDrivePercent.toFixed(2) + '%' : 'N/A'}</div>
+      <div class="detail-row"><strong>Before Rollout:</strong> ${gearUnit === 'in' ? (beforeRolloutIn ? beforeRolloutIn.toFixed(3) + ' in' : 'N/A') : (beforeRolloutMm ? beforeRolloutMm.toFixed(2) + ' mm' : 'N/A')} ${gearUnit === 'in' ? `(${beforeRolloutMm ? beforeRolloutMm.toFixed(2) + ' mm' : 'N/A'})` : `(${beforeRolloutIn ? beforeRolloutIn.toFixed(3) + ' in' : 'N/A'})`}</div>
+      <div class="detail-row"><strong>After Rollout:</strong> ${gearUnit === 'in' ? (afterRolloutIn ? afterRolloutIn.toFixed(3) + ' in' : 'N/A') : (afterRolloutMm ? afterRolloutMm.toFixed(2) + ' mm' : 'N/A')} ${gearUnit === 'in' ? `(${afterRolloutMm ? afterRolloutMm.toFixed(2) + ' mm' : 'N/A'})` : `(${afterRolloutIn ? afterRolloutIn.toFixed(3) + ' in' : 'N/A'})`}</div>
+      <div class="detail-row"><strong>Rollout Change:</strong> ${result.change.rolloutPercent !== null ? result.change.rolloutPercent.toFixed(2) + '%' : 'N/A'}</div>
+    `;
+  });
+
+  document.getElementById('gearReset').addEventListener('click', () => {
+    document.getElementById('beforePinion').value = '';
+    document.getElementById('beforeSpur').value = '';
+    document.getElementById('afterPinion').value = '';
+    document.getElementById('afterSpur').value = '';
+    document.getElementById('gearWheelDiameter').value = '';
+    document.getElementById('gearResult').innerHTML = '';
+  });
+
+  document.getElementById('topSpeedForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const kv = Number(document.getElementById('kv').value) || null;
+    const voltage = Number(document.getElementById('voltage').value) || null;
+    const finalDrive = Number(document.getElementById('finalDrive').value) || null;
+    const wheelDiameterRaw = document.getElementById('wheelDiameter').value;
+    const wheelDiameter = wheelDiameterRaw ? Number(wheelDiameterRaw) : null;
+    const topUnit = document.getElementById('topUnit') ? document.getElementById('topUnit').value : 'in';
+    const wheelDiameterMm = (wheelDiameter && topUnit === 'in') ? wheelDiameter * 25.4 : wheelDiameter;
+    const efficiency = Number(document.getElementById('efficiency').value) || 0.95;
+
+    const res = window.Calculators.estimateTopSpeed({ kv, voltage, finalDriveRatio: finalDrive, wheelDiameterMm: wheelDiameterMm, efficiency });
+    const out = document.getElementById('topSpeedResult');
+    if (!res) {
+      out.innerHTML = '<div class="data-quality-hint">Enter valid inputs for KV, voltage, final drive and wheel diameter.</div>';
+      return;
+    }
+
+    // Display wheel circumference unit-aware
+    const wheelMm = wheelDiameterMm;
+    const wheelIn = wheelMm ? (wheelMm / 25.4) : null;
+    out.innerHTML = `
+      <div class="detail-row"><strong>Estimated Top Speed:</strong> ${res.speedKph} km/h (${res.speedMph} mph)</div>
+      <div class="detail-row"><strong>Motor RPM:</strong> ${res.motorRpm}</div>
+      <div class="detail-row"><strong>Wheel RPM:</strong> ${res.wheelRpm}</div>
+      <div class="detail-row"><strong>Wheel Diameter:</strong> ${topUnit === 'in' ? (wheelIn ? wheelIn.toFixed(3) + ' in' : 'N/A') : (wheelMm ? wheelMm.toFixed(2) + ' mm' : 'N/A')} ${topUnit === 'in' ? `(${wheelMm ? wheelMm.toFixed(2) + ' mm' : 'N/A'})` : `(${wheelIn ? wheelIn.toFixed(3) + ' in' : 'N/A'})`}</div>
+    `;
+  });
+
+  document.getElementById('topReset').addEventListener('click', () => {
+    document.getElementById('kv').value = '';
+    document.getElementById('voltage').value = '';
+    document.getElementById('finalDrive').value = '';
+    document.getElementById('wheelDiameter').value = '';
+    document.getElementById('efficiency').value = '0.95';
+    document.getElementById('topSpeedResult').innerHTML = '';
+  });
+
+  // Unit toggle behavior: update placeholders when switching units
+  const gearUnitEl = document.getElementById('gearUnit');
+  if (gearUnitEl) {
+    gearUnitEl.addEventListener('change', (e) => {
+      const unit = e.target.value;
+      setPreferredUnit(unit);
+      const input = document.getElementById('gearWheelDiameter');
+      if (!input) return;
+      if (unit === 'in') {
+        input.placeholder = 'e.g. 2.6';
+        input.step = '0.01';
+      } else {
+        input.placeholder = 'e.g. 66';
+        input.step = '1';
+      }
+      // keep other selector in sync
+      const other = document.getElementById('topUnit');
+      if (other && other.value !== unit) other.value = unit;
+    });
+  }
+
+  const topUnitEl = document.getElementById('topUnit');
+  if (topUnitEl) {
+    topUnitEl.addEventListener('change', (e) => {
+      const unit = e.target.value;
+      setPreferredUnit(unit);
+      const input = document.getElementById('wheelDiameter');
+      if (!input) return;
+      if (unit === 'in') {
+        input.placeholder = 'e.g. 2.6';
+        input.step = '0.01';
+      } else {
+        input.placeholder = 'e.g. 66';
+        input.step = '1';
+      }
+      // keep other selector in sync
+      const other = document.getElementById('gearUnit');
+      if (other && other.value !== unit) other.value = unit;
+    });
   }
 }
 
