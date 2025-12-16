@@ -38,32 +38,32 @@ with sync_playwright() as p:
         print('Could not trigger loadSampleDataBtn:', e)
 
     page.goto(f"{URL}/#/track/{TRACK_ID}")
-        page.wait_for_timeout(1200)
+    page.wait_for_timeout(1200)
 
-        # Debug: inspect raw DB counts for events and runLogs tied to this track
-        try:
-                js = '''() => new Promise((resolve) => {
-                        const req = indexedDB.open('rc_program');
-                        req.onsuccess = (ev) => {
-                            const db = ev.target.result;
-                            try {
-                                const tx = db.transaction(['events','runLogs'], 'readonly');
-                                const eventsStore = tx.objectStore('events');
-                                const runsStore = tx.objectStore('runLogs');
-                                const getAll = (store) => new Promise(res => { const r = store.getAll(); r.onsuccess = () => res(r.result); });
-                                Promise.all([getAll(eventsStore), getAll(runsStore)]).then(([events, runs]) => {
-                                    const matchedRuns = runs.filter(r => { const ev = events.find(e => e.id === r.eventId); return ev && ev.trackId === '__TRACK_ID__'; });
-                                    resolve({ events: events.length, runs: runs.length, matchedRuns: matchedRuns.length });
-                                }).catch(err => resolve({error: String(err)}));
-                            } catch (err) { resolve({error: String(err)}) }
-                        };
-                        req.onerror = () => resolve({error: 'db-open-failed'});
-                    })'''
-                js = js.replace('__TRACK_ID__', TRACK_ID)
-                db_info = page.evaluate(js)
-                print('DB info:', db_info)
-        except Exception as e:
-                print('DB inspect failed:', e)
+    # Debug: inspect raw DB counts for events and runLogs tied to this track
+    try:
+        js = '''() => new Promise((resolve) => {
+                const req = indexedDB.open('rc_program');
+                req.onsuccess = (ev) => {
+                    const db = ev.target.result;
+                    try {
+                        const tx = db.transaction(['events','runLogs'], 'readonly');
+                        const eventsStore = tx.objectStore('events');
+                        const runsStore = tx.objectStore('runLogs');
+                        const getAll = (store) => new Promise(res => { const r = store.getAll(); r.onsuccess = () => res(r.result); });
+                        Promise.all([getAll(eventsStore), getAll(runsStore)]).then(([events, runs]) => {
+                            const matchedRuns = runs.filter(r => { const ev = events.find(e => e.id === r.eventId); return ev && ev.trackId === '__TRACK_ID__'; });
+                            resolve({ events: events.length, runs: runs.length, matchedRuns: matchedRuns.length });
+                        }).catch(err => resolve({error: String(err)}));
+                    } catch (err) { resolve({error: String(err)}) }
+                };
+                req.onerror = () => resolve({error: 'db-open-failed'});
+            })'''
+        js = js.replace('__TRACK_ID__', TRACK_ID)
+        db_info = page.evaluate(js)
+        print('DB info:', db_info)
+    except Exception as e:
+        print('DB inspect failed:', e)
     # capture KPI values
     def get_text(selector):
         try:
