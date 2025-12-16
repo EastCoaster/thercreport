@@ -2642,6 +2642,11 @@ async function renderEventDetailPage() {
                   </span>
                 `).join('')}
               </div>
+              <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
+                ${eventCars.map(car => `
+                  <button class="btn btn-secondary" data-action="logrun" data-car-id="${car.id}">Log Run - ${escapeHtml(car.name)}</button>
+                `).join('')}
+              </div>
             ` : `<span style="color: var(--text-secondary);">No cars selected for this event.</span>`}
           </div>
         </div>
@@ -2737,6 +2742,24 @@ async function renderEventDetailPage() {
               </div>
             </div>
             <div class="form-group">
+              <label>Track Conditions</label>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <button type="button" class="track-condition-btn" data-condition="fast" style="padding: 16px; font-size: 16px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
+                  🚀 Fast
+                </button>
+                <button type="button" class="track-condition-btn" data-condition="loose" style="padding: 16px; font-size: 16px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
+                  ⚠️ Loose
+                </button>
+                <button type="button" class="track-condition-btn" data-condition="tractionRoll" style="padding: 16px; font-size: 16px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
+                  🧱 Traction Roll
+                </button>
+                <button type="button" class="track-condition-btn" data-condition="slow" style="padding: 16px; font-size: 16px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
+                  🐢 Slow
+                </button>
+              </div>
+              <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">Select one or more track conditions for this session.</div>
+            </div>
+            <div class="form-group">
               <label for="runLogNotes">Notes</label>
               <textarea id="runLogNotes" rows="3" placeholder="Run notes, observations, issues..."></textarea>
             </div>
@@ -2781,6 +2804,14 @@ async function renderEventDetailPage() {
                         ${log.avgLap ? `<span class="stat-badge">Avg: ${escapeHtml(log.avgLap)}</span>` : ''}
                         ${log.position ? `<span class="stat-badge">Position: ${escapeHtml(log.position)}</span>` : ''}
                       </div>
+                      ${log.trackConditions && log.trackConditions.length > 0 ? `
+                        <div class="runlog-conditions" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
+                          ${log.trackConditions.map(condition => {
+                            const icons = { fast: '🚀 Fast', loose: '⚠️ Loose', tractionRoll: '🧱 Traction Roll', slow: '🐢 Slow' };
+                            return `<span class="stat-badge" style="background: var(--primary-color-light, rgba(25, 118, 210, 0.1)); border: 1px solid var(--primary-color);">${icons[condition] || condition}</span>`;
+                          }).join('')}
+                        </div>
+                      ` : ''}
                       ${log.notes ? `<p class="runlog-notes">${escapeHtml(log.notes)}</p>` : ''}
                       <p class="runlog-date">${new Date(log.createdAt).toLocaleString()}</p>
                     </div>
@@ -2806,6 +2837,30 @@ async function renderEventDetailPage() {
     document.getElementById('addRunLogBtn')?.addEventListener('click', () => showRunLogForm(eventId));
     document.getElementById('cancelRunLogBtn')?.addEventListener('click', hideRunLogForm);
     document.getElementById('runLogFormElement')?.addEventListener('submit', handleRunLogSubmit);
+    
+    // Attach Log Run buttons for event cars
+    document.querySelectorAll('button[data-action="logrun"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const carId = btn.dataset.carId;
+        showRunLogForm(eventId, null, carId);
+      });
+    });
+    
+    // Track condition button toggle handlers
+    document.querySelectorAll('.track-condition-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const isSelected = btn.style.borderColor === 'rgb(25, 118, 210)' || btn.style.borderColor === 'var(--primary-color)';
+        if (isSelected) {
+          btn.style.borderColor = 'var(--border-color)';
+          btn.style.backgroundColor = 'var(--bg-card)';
+          btn.style.fontWeight = 'normal';
+        } else {
+          btn.style.borderColor = 'var(--primary-color)';
+          btn.style.backgroundColor = 'var(--primary-color-light, rgba(25, 118, 210, 0.1))';
+          btn.style.fontWeight = 'bold';
+        }
+      });
+    });
     
     // Setup dropdown population when car changes
     document.getElementById('runLogCarId')?.addEventListener('change', async (e) => {
@@ -2863,7 +2918,7 @@ async function renderEventDetailPage() {
 }
 
 // Run Log Form Helpers
-function showRunLogForm(eventId, runLog = null) {
+function showRunLogForm(eventId, runLog = null, preSelectedCarId = null) {
   const form = document.getElementById('runLogForm');
   const formTitle = document.getElementById('runLogFormTitle');
   const submitBtn = document.getElementById('runLogSubmitBtn');
@@ -2896,6 +2951,21 @@ function showRunLogForm(eventId, runLog = null) {
     document.getElementById('runLogPosition').value = runLog.position || '';
     document.getElementById('runLogNotes').value = runLog.notes || '';
     
+    // Sync track conditions
+    const conditions = runLog.trackConditions || [];
+    document.querySelectorAll('.track-condition-btn').forEach(btn => {
+      const condition = btn.dataset.condition;
+      if (conditions.includes(condition)) {
+        btn.style.borderColor = 'var(--primary-color)';
+        btn.style.backgroundColor = 'var(--primary-color-light, rgba(25, 118, 210, 0.1))';
+        btn.style.fontWeight = 'bold';
+      } else {
+        btn.style.borderColor = 'var(--border-color)';
+        btn.style.backgroundColor = 'var(--bg-card)';
+        btn.style.fontWeight = 'normal';
+      }
+    });
+    
     // Load setups for the car and set setupId
     if (runLog.carId) {
       queryIndex('setups', 'carId', runLog.carId).then(setups => {
@@ -2926,6 +2996,20 @@ function showRunLogForm(eventId, runLog = null) {
     document.getElementById('runLogFormElement').reset();
     document.getElementById('runLogId').value = '';
     document.getElementById('runLogEventId').value = eventId;
+    
+    // Reset track condition buttons
+    document.querySelectorAll('.track-condition-btn').forEach(btn => {
+      btn.style.borderColor = 'var(--border-color)';
+      btn.style.backgroundColor = 'var(--bg-card)';
+      btn.style.fontWeight = 'normal';
+    });
+    
+    // Pre-select car if provided
+    if (preSelectedCarId && carEl) {
+      carEl.value = preSelectedCarId;
+      // Trigger change event to load setups for the car
+      carEl.dispatchEvent(new Event('change'));
+    }
   }
   
   form.style.display = 'block';
@@ -2965,6 +3049,11 @@ async function handleRunLogSubmit(e) {
     avgLap = (timeSeconds / totalLaps).toFixed(3);
   }
   
+  // Collect selected track conditions
+  const selectedConditions = Array.from(document.querySelectorAll('.track-condition-btn')).filter(btn => {
+    return btn.style.borderColor === 'rgb(25, 118, 210)' || btn.style.borderColor === 'var(--primary-color)';
+  }).map(btn => btn.dataset.condition);
+  
   const runLogData = {
     id: id || generateId('runlog'),
     eventId: eventId,
@@ -2977,6 +3066,7 @@ async function handleRunLogSubmit(e) {
     time: timeSeconds,
     position: document.getElementById('runLogPosition').value.trim(),
     notes: document.getElementById('runLogNotes').value.trim(),
+    trackConditions: selectedConditions,
     updatedAt: new Date().toISOString()
   };
   
@@ -3540,6 +3630,7 @@ async function renderTracksPage() {
                     ${track.address ? `<div class="track-detail">${escapeHtml(track.address)}</div>` : ''}
                     ${track.surface ? `<div class="track-detail">Surface: ${escapeHtml(track.surface)}</div>` : ''}
                     ${track.websiteUrl ? `<div class="track-detail"><a href="${escapeHtml(track.websiteUrl)}" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color); text-decoration: none;">🌐 Website</a></div>` : ''}
+                    ${track.liveRcUrl ? `<div class="track-detail"><a href="${escapeHtml(track.liveRcUrl)}" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color); text-decoration: none;">📺 LiveRC</a></div>` : ''}
                   </div>
                   <div class="track-actions">
                     
