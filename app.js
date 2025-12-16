@@ -5079,6 +5079,40 @@ function renderToolsPage() {
         </form>
         <div id="topSpeedResult" style="margin-top:12px;"></div>
       </div>
+
+      <div class="page-content">
+        <h3>Shock Oil Conversion</h3>
+        <p style="color: var(--text-secondary);">Convert between CST, Associated, and Losi shock oil weights.</p>
+        <form id="shockOilForm">
+          <div class="form-group">
+            <label>Oil Weight</label>
+            <input id="shockOilValue" type="number" step="0.5" min="0" placeholder="e.g. 300">
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+            <div class="form-group">
+              <label>From</label>
+              <select id="shockOilFrom">
+                <option value="cst">CST</option>
+                <option value="associated">Associated</option>
+                <option value="losi">Losi</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>To</label>
+              <select id="shockOilTo">
+                <option value="associated">Associated</option>
+                <option value="losi">Losi</option>
+                <option value="cst">CST</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" type="submit">Convert</button>
+            <button class="btn btn-secondary" type="button" id="shockOilReset">Reset</button>
+          </div>
+        </form>
+        <div id="shockOilResult" style="margin-top:12px;"></div>
+      </div>
     </div>
   `;
 
@@ -5225,6 +5259,43 @@ function renderToolsPage() {
     document.getElementById('wheelDiameter').value = '';
     document.getElementById('efficiency').value = '0.95';
     document.getElementById('topSpeedResult').innerHTML = '';
+  });
+
+  // Shock Oil Conversion handlers
+  document.getElementById('shockOilForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const value = Number(document.getElementById('shockOilValue').value) || null;
+    const fromUnit = document.getElementById('shockOilFrom').value;
+    const toUnit = document.getElementById('shockOilTo').value;
+
+    const out = document.getElementById('shockOilResult');
+    if (!value || value <= 0) {
+      out.innerHTML = '<div class="data-quality-hint">Enter a valid oil weight value.</div>';
+      return;
+    }
+
+    if (fromUnit === toUnit) {
+      out.innerHTML = '<div class="data-quality-hint">Please select different units to convert.</div>';
+      return;
+    }
+
+    const result = window.Calculators.convertShockOil(value, fromUnit, toUnit);
+    if (!result) {
+      out.innerHTML = '<div class="data-quality-hint">Unable to convert. Value may be out of range.</div>';
+      return;
+    }
+
+    const fromLabel = fromUnit.toUpperCase();
+    const toLabel = toUnit.toUpperCase();
+    out.innerHTML = `
+      <div class="detail-row"><strong>${value} ${fromLabel}</strong> ≈ <strong>${result} ${toLabel}</strong></div>
+      <div class="form-hint" style="margin-top:8px;font-size:12px;color:var(--text-secondary);">Conversion based on closest match in standard oil weight chart.</div>
+    `;
+  });
+
+  document.getElementById('shockOilReset').addEventListener('click', () => {
+    document.getElementById('shockOilValue').value = '';
+    document.getElementById('shockOilResult').innerHTML = '';
   });
 
   // Unit toggle behavior: update placeholders when switching units

@@ -112,6 +112,50 @@ export function estimateTopSpeed({ kv, voltage, finalDriveRatio, wheelDiameterMm
   };
 }
 
+// Shock Oil Conversion
+// Conversion table based on industry standards
+const shockOilConversionTable = [
+  { cst: 100, associated: 10, losi: 15 },
+  { cst: 150, associated: 15, losi: 17.5 },
+  { cst: 200, associated: 20, losi: 20 },
+  { cst: 250, associated: 22.5, losi: 22.5 },
+  { cst: 300, associated: 25, losi: 25 },
+  { cst: 350, associated: 27.5, losi: 30 },
+  { cst: 400, associated: 30, losi: 32.5 },
+  { cst: 450, associated: 35, losi: 35 },
+  { cst: 500, associated: 40, losi: 37.5 },
+  { cst: 550, associated: 42.5, losi: 40 },
+  { cst: 600, associated: 45, losi: 42.5 },
+  { cst: 650, associated: 47.5, losi: 45 },
+  { cst: 700, associated: 50, losi: 47.5 },
+  { cst: 750, associated: 52.5, losi: 50 },
+  { cst: 800, associated: 55, losi: 52.5 }
+];
+
+export function convertShockOil(value, fromUnit, toUnit) {
+  const val = Number(value);
+  if (!val || val <= 0) return null;
+  if (!fromUnit || !toUnit) return null;
+  if (fromUnit === toUnit) return val;
+
+  // Find the closest match in our table
+  let closestRow = null;
+  let minDiff = Infinity;
+
+  for (const row of shockOilConversionTable) {
+    const fromValue = row[fromUnit.toLowerCase()];
+    if (!fromValue) continue;
+    const diff = Math.abs(fromValue - val);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closestRow = row;
+    }
+  }
+
+  if (!closestRow) return null;
+  return closestRow[toUnit.toLowerCase()] || null;
+}
+
 // Attach to window for quick usage in non-module contexts
 if (typeof window !== 'undefined') {
   window.Calculators = window.Calculators || {};
@@ -122,4 +166,5 @@ if (typeof window !== 'undefined') {
   window.Calculators.percentChange = percentChange;
   window.Calculators.compareGearing = compareGearing;
   window.Calculators.estimateTopSpeed = estimateTopSpeed;
+  window.Calculators.convertShockOil = convertShockOil;
 }
