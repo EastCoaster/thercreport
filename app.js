@@ -438,6 +438,14 @@ function showCarForm(car = null) {
     if (removeBtnEl) removeBtnEl.style.display = 'none';
   }
   
+  // Hide Add Car button and car list when in edit mode
+  if (car) {
+    const addBtn = document.getElementById('addCarBtn');
+    const carList = document.getElementById('carList');
+    if (addBtn) addBtn.style.display = 'none';
+    if (carList) carList.style.display = 'none';
+  }
+  
   form.style.display = 'block';
   document.getElementById('carName').focus();
   
@@ -448,6 +456,12 @@ function showCarForm(car = null) {
 function hideCarForm() {
   document.getElementById('carForm').style.display = 'none';
   document.getElementById('carFormElement').reset();
+  
+  // Show Add Car button and car list again
+  const addBtn = document.getElementById('addCarBtn');
+  const carList = document.getElementById('carList');
+  if (addBtn) addBtn.style.display = 'block';
+  if (carList) carList.style.display = 'block';
 }
 
 async function handleCarSubmit(e) {
@@ -702,8 +716,9 @@ async function renderCarDetailPage() {
         <button class="btn-back" onclick="window.location.hash='#/garage'">← Back to Garage</button>
         
         <!-- Car Summary -->
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
           <h2 style="margin: 0;">${escapeHtml(car.name)}</h2>
+          <button class="btn" id="editCarBtn">Edit Car</button>
         </div>
         ${car.image ? `
           <div style="margin-bottom: 16px; text-align: center;">
@@ -1015,21 +1030,13 @@ async function renderCarDetailPage() {
       });
     }
 
-    // Append Edit Car button at the very bottom after all content
-    const pageDiv = app.querySelector('.page');
-    if (pageDiv) {
-      const btnDiv = document.createElement('div');
-      btnDiv.style.marginTop = '32px';
-      btnDiv.style.textAlign = 'center';
-      btnDiv.innerHTML = '<button class="btn btn-secondary" id="editCarBtn">Edit Car</button>';
-      pageDiv.appendChild(btnDiv);
-      const editBtn = btnDiv.querySelector('#editCarBtn');
-      if (editBtn) {
-        editBtn.addEventListener('click', () => {
-          window.pendingEditCarId = carId;
-          window.location.hash = '#/garage';
-        });
-      }
+    // Attach Edit Car button event listener
+    const editBtn = document.getElementById('editCarBtn');
+    if (editBtn) {
+      editBtn.addEventListener('click', () => {
+        window.pendingEditCarId = carId;
+        window.location.hash = '#/garage';
+      });
     }
 
   } catch (error) {
@@ -1935,6 +1942,14 @@ function showTrackForm(track = null) {
     document.getElementById('trackWebsiteUrl').value = '';
   }
   
+  // Hide Add Track button and track list when in edit mode
+  if (track) {
+    const addBtn = document.getElementById('addTrackBtn');
+    const trackList = document.getElementById('trackList');
+    if (addBtn) addBtn.style.display = 'none';
+    if (trackList) trackList.style.display = 'none';
+  }
+  
   form.style.display = 'block';
   document.getElementById('trackName').focus();
 }
@@ -1942,6 +1957,12 @@ function showTrackForm(track = null) {
 function hideTrackForm() {
   document.getElementById('trackForm').style.display = 'none';
   document.getElementById('trackFormElement').reset();
+  
+  // Show Add Track button and track list again
+  const addBtn = document.getElementById('addTrackBtn');
+  const trackList = document.getElementById('trackList');
+  if (addBtn) addBtn.style.display = 'block';
+  if (trackList) trackList.style.display = 'block';
 }
 
 async function handleTrackSubmit(e) {
@@ -2045,7 +2066,10 @@ async function renderTrackDetailPage() {
       <div class="page">
         <button class="btn-back" onclick="window.location.hash='#/tracks'">← Back to Tracks</button>
         
-        <h2>${escapeHtml(track.name)}</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h2 style="margin: 0;">${escapeHtml(track.name)}</h2>
+          <button class="btn" onclick="window.location.hash='#/tracks'; setTimeout(() => window.editTrack('${track.id}'), 100)">Edit Track</button>
+        </div>
         
         <div class="page-content" style="margin-bottom: 16px;">
           ${track.surface ? `
@@ -2072,40 +2096,24 @@ async function renderTrackDetailPage() {
           ` : ''}
         </div>
         
-        <!-- Action Buttons -->
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-          ${appleMapsUrl ? `
-            <div>
-              <h3 style="font-size: 16px; margin-bottom: 8px;">Open in Maps</h3>
-              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <a href="${appleMapsUrl}" target="_blank" class="btn" style="text-decoration: none;">🍎 Apple Maps</a>
-                <a href="${googleMapsUrl}" target="_blank" class="btn" style="text-decoration: none;">🌎 Google Maps</a>
-              </div>
+        <!-- Links Section -->
+        ${track.websiteUrl || track.liveRcUrl ? `
+          <div class="page-content" style="margin-bottom: 16px;">
+            <h3>Links</h3>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
+              ${track.websiteUrl ? `
+                <a href="${escapeHtml(track.websiteUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
+                  🌐 Track Website
+                </a>
+              ` : ''}
+              ${track.liveRcUrl ? `
+                <a href="${escapeHtml(track.liveRcUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
+                  📺 LiveRC
+                </a>
+              ` : ''}
             </div>
-          ` : ''}
-          
-          ${track.websiteUrl ? `
-            <div>
-              <h3 style="font-size: 16px; margin-bottom: 8px;">Track Website</h3>
-              <a href="${escapeHtml(track.websiteUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
-                🌐 Visit Website
-              </a>
-            </div>
-          ` : ''}
-          
-          ${track.liveRcUrl ? `
-            <div>
-              <h3 style="font-size: 16px; margin-bottom: 8px;">Live Stream</h3>
-              <a href="${escapeHtml(track.liveRcUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
-                📺 Open LiveRC
-              </a>
-            </div>
-          ` : ''}
-          
-          <div style="margin-top: 8px;">
-            <button class="btn" onclick="window.location.hash='#/tracks'; setTimeout(() => window.editTrack('${track.id}'), 100)">Edit Track</button>
           </div>
-        </div>
+        ` : ''}
         
         ${track.createdAt ? `
           <div style="margin-top: 24px;">
@@ -2255,6 +2263,24 @@ async function renderTrackDetailPage() {
       }
     })();
     
+    // Add map options section at the bottom
+    if (appleMapsUrl) {
+      const trackUsageSection = document.querySelector('.page-content:last-of-type');
+      if (trackUsageSection) {
+        const mapSection = document.createElement('div');
+        mapSection.className = 'page-content';
+        mapSection.style.marginTop = '24px';
+        mapSection.innerHTML = `
+          <h3>Maps</h3>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
+            <a href="${appleMapsUrl}" target="_blank" class="btn" style="text-decoration: none;">🍎 Apple Maps</a>
+            <a href="${googleMapsUrl}" target="_blank" class="btn" style="text-decoration: none;">🌎 Google Maps</a>
+          </div>
+        `;
+        trackUsageSection.parentElement.appendChild(mapSection);
+      }
+    }
+    
   } catch (error) {
     console.error('❌ Failed to load track:', error);
     app.innerHTML = '<div class="page"><p>Failed to load track details</p></div>';
@@ -2293,6 +2319,14 @@ function showEventForm(event = null) {
     });
   }
   
+  // Hide Add Event button and event list when in edit mode
+  if (event) {
+    const addBtn = document.getElementById('addEventBtn');
+    const eventList = document.getElementById('eventList');
+    if (addBtn) addBtn.style.display = 'none';
+    if (eventList) eventList.style.display = 'none';
+  }
+  
   form.style.display = 'block';
   document.getElementById('eventTitle').focus();
 }
@@ -2300,6 +2334,12 @@ function showEventForm(event = null) {
 function hideEventForm() {
   document.getElementById('eventForm').style.display = 'none';
   document.getElementById('eventFormElement').reset();
+  
+  // Show Add Event button and event list again
+  const addBtn = document.getElementById('addEventBtn');
+  const eventList = document.getElementById('eventList');
+  if (addBtn) addBtn.style.display = 'block';
+  if (eventList) eventList.style.display = 'block';
 }
 
 async function handleEventSubmit(e) {
@@ -2605,7 +2645,10 @@ async function renderEventDetailPage() {
       <div class="page">
         <button class="btn-back" onclick="window.location.hash='#/events'">← Back to Events</button>
         
-        <h2>${escapeHtml(event.title)}</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h2 style="margin: 0;">${escapeHtml(event.title)}</h2>
+          <button class="btn" onclick="window.location.hash='#/events'; setTimeout(() => window.editEvent('${event.id}'), 100)">Edit Event</button>
+        </div>
         
         <div class="page-content" style="margin-bottom: 16px;">
           <div class="detail-row">
@@ -2651,17 +2694,6 @@ async function renderEventDetailPage() {
           </div>
         </div>
         
-        <!-- Action Buttons -->
-        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px;">
-          <button class="btn" id="exportIcsBtn">📅 Export to Calendar</button>
-          <button class="btn" onclick="window.location.hash='#/events'; setTimeout(() => window.editEvent('${event.id}'), 100)">Edit Event</button>
-          ${event.liveRcEventUrl ? `
-            <a href="${escapeHtml(event.liveRcEventUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
-              📺 Open LiveRC
-            </a>
-          ` : ''}
-        </div>
-
         <!-- LiveRC Link -->
         ${event.liveRcEventUrl ? `
           <div class="page-content" style="margin-bottom: 24px;">
@@ -2824,6 +2856,12 @@ async function renderEventDetailPage() {
               })).then(items => items.join(''))}
             </div>
           `}
+        </div>
+        
+        <!-- Export to Calendar Section -->
+        <div class="page-content" style="margin-top: 24px;">
+          <h3>Export</h3>
+          <button class="btn" id="exportIcsBtn" style="margin-top: 12px;">📅 Export to Calendar</button>
         </div>
       </div>
     `;
