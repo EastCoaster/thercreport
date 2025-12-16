@@ -2301,6 +2301,7 @@ function showEventForm(event = null) {
     document.getElementById('eventTrackId').value = event.trackId || '';
     document.getElementById('eventDate').value = event.date || '';
     document.getElementById('eventStartTime').value = event.startTime || '';
+    document.getElementById('eventTrackWebsite').value = event.trackWebsite || '';
     document.getElementById('eventLiveRcUrl').value = event.liveRcEventUrl || '';
     document.getElementById('eventNotes').value = event.notes || '';
   } else {
@@ -2353,6 +2354,7 @@ async function handleEventSubmit(e) {
     trackId: document.getElementById('eventTrackId').value,
     date: document.getElementById('eventDate').value,
     startTime: document.getElementById('eventStartTime').value,
+    trackWebsite: document.getElementById('eventTrackWebsite').value.trim(),
     liveRcEventUrl: document.getElementById('eventLiveRcUrl').value.trim(),
     notes: document.getElementById('eventNotes').value.trim(),
     carIds: selectedCarIds,
@@ -2694,16 +2696,28 @@ async function renderEventDetailPage() {
           </div>
         </div>
         
-        <!-- LiveRC Link -->
-        ${event.liveRcEventUrl ? `
-          <div class="page-content" style="margin-bottom: 24px;">
-            <h3 style="margin-bottom: 12px;">LiveRC Event</h3>
-            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 8px;">
-              Quick reference link to the LiveRC event page.
-            </p>
-            <a href="${escapeHtml(event.liveRcEventUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
-              📺 View on LiveRC
-            </a>
+        <!-- Links Section -->
+        ${event.trackWebsite || event.liveRcEventUrl ? `
+          <div class="page-content" style="margin-bottom: 16px;">
+            <h3>Links</h3>
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
+              ${event.trackWebsite ? `
+                <div>
+                  <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 6px;">Track Website</div>
+                  <a href="${escapeHtml(event.trackWebsite)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
+                    🌐 Visit Track Website
+                  </a>
+                </div>
+              ` : ''}
+              ${event.liveRcEventUrl ? `
+                <div>
+                  <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 6px;">LiveRC Event</div>
+                  <a href="${escapeHtml(event.liveRcEventUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
+                    📺 View on LiveRC
+                  </a>
+                </div>
+              ` : ''}
+            </div>
           </div>
         ` : ''}
         
@@ -3502,8 +3516,14 @@ async function renderEventsPage() {
               `}
             </div>
             <div class="form-group">
+              <label for="eventLiveRcUrl">Track Website</label>
+              <input type="url" id="eventTrackWebsite" placeholder="https://example.com/...">
+              <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">Automatically populated from track details.</div>
+            </div>
+            <div class="form-group">
               <label for="eventLiveRcUrl">LiveRC Event URL</label>
               <input type="url" id="eventLiveRcUrl" placeholder="https://liverchobby.tv/events/...">
+              <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">Automatically populated from track details.</div>
             </div>
             <div class="form-group">
               <label for="eventNotes">Notes</label>
@@ -3555,6 +3575,28 @@ async function renderEventsPage() {
     document.getElementById('addEventBtn')?.addEventListener('click', () => showEventForm());
     document.getElementById('cancelEventBtn')?.addEventListener('click', hideEventForm);
     document.getElementById('eventFormElement')?.addEventListener('submit', handleEventSubmit);
+    
+    // Auto-populate track website and LiveRC URL when track is selected
+    document.getElementById('eventTrackId')?.addEventListener('change', async (e) => {
+      const trackId = e.target.value;
+      if (trackId) {
+        try {
+          const track = await get('tracks', trackId);
+          if (track) {
+            const websiteInput = document.getElementById('eventTrackWebsite');
+            const liveRcInput = document.getElementById('eventLiveRcUrl');
+            if (websiteInput && track.websiteUrl) {
+              websiteInput.value = track.websiteUrl;
+            }
+            if (liveRcInput && track.liveRcUrl) {
+              liveRcInput.value = track.liveRcUrl;
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load track details:', error);
+        }
+      }
+    });
     
     // Attach action buttons
     document.querySelectorAll('.event-item .btn-icon').forEach(btn => {
