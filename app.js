@@ -2283,6 +2283,15 @@ function showEventForm(event = null) {
     document.getElementById('eventFormElement').reset();
     document.getElementById('eventId').value = '';
   }
+
+  // Sync car selections for the event (add: none selected; edit: selected IDs checked)
+  const carCheckboxes = document.querySelectorAll('input[name="eventCars"]');
+  if (carCheckboxes && carCheckboxes.length > 0) {
+    const selectedIds = Array.isArray(event?.carIds) ? event.carIds : [];
+    carCheckboxes.forEach(cb => {
+      cb.checked = selectedIds.includes(cb.value);
+    });
+  }
   
   form.style.display = 'block';
   document.getElementById('eventTitle').focus();
@@ -2297,6 +2306,7 @@ async function handleEventSubmit(e) {
   e.preventDefault();
   
   const id = document.getElementById('eventId').value;
+  const selectedCarIds = Array.from(document.querySelectorAll('input[name="eventCars"]:checked')).map(cb => cb.value);
   const eventData = {
     id: id || generateId('event'),
     title: document.getElementById('eventTitle').value.trim(),
@@ -2305,6 +2315,7 @@ async function handleEventSubmit(e) {
     startTime: document.getElementById('eventStartTime').value,
     liveRcEventUrl: document.getElementById('eventLiveRcUrl').value.trim(),
     notes: document.getElementById('eventNotes').value.trim(),
+    carIds: selectedCarIds,
     updatedAt: new Date().toISOString()
   };
   
@@ -2563,6 +2574,9 @@ async function renderEventDetailPage() {
     // Load cars for the select dropdown
     const cars = await getAll('cars');
     cars.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    const eventCars = Array.isArray(event.carIds) ? cars.filter(car => event.carIds.includes(car.id)) : [];
+    const allowedCars = eventCars.length > 0 ? eventCars : cars;
     
     // Load run logs for this event
     let runLogs = await queryIndex('runLogs', 'eventId', eventId);
@@ -2617,6 +2631,19 @@ async function renderEventDetailPage() {
               <p style="margin-top: 8px; white-space: pre-wrap;">${escapeHtml(event.notes)}</p>
             </div>
           ` : ''}
+          <div class="detail-row">
+            <strong>Event Cars:</strong><br>
+            ${eventCars.length ? `
+              <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;">
+                ${eventCars.map(car => `
+                  <span style="border:1px solid var(--border-color); border-radius:12px; padding:6px 10px; display:inline-flex; gap:6px; align-items:center;">
+                    ${escapeHtml(car.name)}
+                    ${car.transponder ? `<span style="color: var(--text-secondary); font-size:12px;">(${escapeHtml(car.transponder)})</span>` : ''}
+                  </span>
+                `).join('')}
+              </div>
+            ` : `<span style="color: var(--text-secondary);">No cars selected for this event.</span>`}
+          </div>
         </div>
         
         <!-- Action Buttons -->
@@ -2658,14 +2685,14 @@ async function renderEventDetailPage() {
             <input type="hidden" id="runLogEventId" value="${eventId}">
             <div class="form-group">
               <label for="runLogCarId">Car *</label>
-              ${cars.length === 0 ? `
+              ${allowedCars.length === 0 ? `
                 <p style="color: var(--text-secondary); font-size: 14px; margin: 8px 0;">
                   No cars available. <a href="#/garage" style="color: var(--primary-color);">Add cars first</a>
                 </p>
               ` : `
                 <select id="runLogCarId" required>
                   <option value="">Select a car...</option>
-                  ${cars.map(car => `<option value="${car.id}">${escapeHtml(car.name)}</option>`).join('')}
+                  ${allowedCars.map(car => `<option value="${car.id}">${escapeHtml(car.name)}</option>`).join('')}
                 </select>
                 <div id="runLogCarHint" class="form-hint" style="display:none;">Locked during edit to keep log consistent.</div>
               `}
@@ -2726,7 +2753,7 @@ async function renderEventDetailPage() {
             <label for="carFilter">Filter by Car</label>
             <select id="carFilter">
               <option value="">All Cars</option>
-              ${cars.map(car => `<option value="${car.id}" ${selectedCarFilter === car.id ? 'selected' : ''}>${escapeHtml(car.name)}</option>`).join('')}
+              ${(eventCars.length ? eventCars : cars).map(car => `<option value="${car.id}" ${selectedCarFilter === car.id ? 'selected' : ''}>${escapeHtml(car.name)}</option>`).join('')}
             </select>
           </div>
         ` : ''}
@@ -3285,6 +3312,10 @@ async function renderEventsPage() {
     // Load tracks for the select dropdown
     const tracks = await getAll('tracks');
     tracks.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    // Load cars for event selection
+    const cars = await getAll('cars');
+    cars.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     
     // Render page
     app.innerHTML = `
@@ -3323,6 +3354,24 @@ async function renderEventsPage() {
             <div class="form-group">
               <label for="eventStartTime">Start Time (optional)</label>
               <input type="time" id="eventStartTime" placeholder="HH:MM">
+            </div>
+            <div class="form-group">
+              <label>Cars for this event</label>
+              ${cars.length === 0 ? `
+                <p style="color: var(--text-secondary); font-size: 14px; margin: 8px 0;">
+                  No cars available. <a href="#/garage" style="color: var(--primary-color);">Add cars first</a>
+                </p>
+              ` : `
+                <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                  ${cars.map(car => `
+                    <label style="display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border-color); border-radius:12px; padding:6px 10px;">
+                      <input type="checkbox" name="eventCars" value="${car.id}" style="margin:0;">
+                      <span>${escapeHtml(car.name)}${car.transponder ? `<span style="color: var(--text-secondary); font-size:12px;"> (${escapeHtml(car.transponder)})</span>` : ''}</span>
+                    </label>
+                  `).join('')}
+                </div>
+                <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">Select the cars you'll run at this event.</div>
+              `}
             </div>
             <div class="form-group">
               <label for="eventLiveRcUrl">LiveRC Event URL</label>
