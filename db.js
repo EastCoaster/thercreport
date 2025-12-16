@@ -1,6 +1,6 @@
 // IndexedDB Wrapper for RC Race Program
 const DB_NAME = 'rc_program';
-const DB_VERSION = 1;
+const DB_VERSION = 1.1;
 
 let dbInstance = null;
 
@@ -18,18 +18,60 @@ export async function dbInit() {
     return dbInstance;
   }
 
-  return new Promise((resolve, reject) => {
+  let retryCount = 0;
+  const maxRetries = 5;
+  const retryDelay = 500;
+
+  function openDb(resolve, reject) {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onerror = () => {
-      const error = new Error('Failed to open IndexedDB database');
-      console.error('❌ [DB]', error);
-      reject(error);
+    request.onerror = (event) => {
+      const error = event.target.error;
+      if (error && error.name === 'InvalidStateError' && retryCount < maxRetries) {
+        // Version change transaction in progress, retry after delay
+        retryCount++;
+        console.warn(`[DB] Version change in progress, retrying open (${retryCount}/${maxRetries})...`);
+        setTimeout(() => openDb(resolve, reject), retryDelay);
+        return;
+      }
+      const err = new Error('Failed to open IndexedDB database');
+      console.error('❌ [DB]', err);
+      reject(err);
     };
 
     request.onsuccess = (event) => {
       dbInstance = event.target.result;
       console.log('✅ [DB] Database opened successfully');
+
+      // Data migrations after schema upgrade
+      // Upgrade logic for cars: add transponder if missing
+      const carTx = dbInstance.transaction(['cars'], 'readwrite');
+      const carStore = carTx.objectStore('cars');
+      carStore.openCursor().onsuccess = function (event) {
+        const cursor = event.target.result;
+        if (cursor) {
+          const car = cursor.value;
+          if (!('transponder' in car)) car.transponder = '';
+          cursor.update(car);
+          cursor.continue();
+        }
+      };
+
+      // Upgrade tracks: remove lat/lng, add websiteUrl if missing
+      const trackTx = dbInstance.transaction(['tracks'], 'readwrite');
+      const trackStore = trackTx.objectStore('tracks');
+      trackStore.openCursor().onsuccess = function (event) {
+        const cursor = event.target.result;
+        if (cursor) {
+          const track = cursor.value;
+          if ('lat' in track) delete track.lat;
+          if ('lng' in track) delete track.lng;
+          if (!('websiteUrl' in track)) track.websiteUrl = '';
+          cursor.update(track);
+          cursor.continue();
+        }
+      };
+
       resolve(dbInstance);
     };
 
@@ -76,7 +118,9 @@ export async function dbInit() {
 
       console.log('✅ [DB] Database schema upgraded');
     };
-  });
+  }
+
+  return new Promise(openDb);
 }
 
 /**

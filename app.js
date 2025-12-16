@@ -1,7 +1,7 @@
 import { dbInit, add, put, get, getAll, remove, generateId, queryIndex, normalizeSetupData, clearAllStores, resetDatabase } from './db.js';
 import { diffObjects } from './diff.js';
 import { parseLap, aggregateRuns, groupRunsByEvent } from './stats.js';
-import { renderLineChart } from './charts.js';
+import { renderLineChart, renderBarChart } from './charts.js';
 import * as Calculators from './tools/calculators.js';
 
 // Global app state and UI helpers
@@ -287,6 +287,10 @@ async function renderGaragePage() {
               <input type="text" id="carEsc" placeholder="e.g. Reedy SC1000">
             </div>
             <div class="form-group">
+              <label for="carTransponder">Transponder</label>
+              <input type="text" id="carTransponder" placeholder="e.g. 1234567">
+            </div>
+            <div class="form-group">
               <label for="carNotes">Notes</label>
               <textarea id="carNotes" rows="3" placeholder="Additional notes..."></textarea>
             </div>
@@ -326,9 +330,10 @@ async function renderGaragePage() {
                     <h3 class="car-name">${escapeHtml(car.name)}</h3>
                     ${car.class ? `<p class="car-detail">${escapeHtml(car.class)}</p>` : ''}
                     ${car.chassis ? `<p class="car-detail"><small>${escapeHtml(car.chassis)}</small></p>` : ''}
+                    ${car.transponder ? `<p class="car-detail"><small>Transponder: ${escapeHtml(car.transponder)}</small></p>` : ''}
                   </div>
                   <div class="car-actions">
-                    <button class="btn-icon" data-action="view" data-id="${car.id}" title="View">👁️</button>
+                    
                     <button class="btn-icon" data-action="edit" data-id="${car.id}" title="Edit">✏️</button>
                     <button class="btn-icon" data-action="delete" data-id="${car.id}" title="Delete">🗑️</button>
                   </div>
@@ -340,10 +345,21 @@ async function renderGaragePage() {
       </div>
     `;
     
+    
+    
+    
+    
     // Attach event listeners
     document.getElementById('addCarBtn')?.addEventListener('click', () => showCarForm());
     document.getElementById('cancelBtn')?.addEventListener('click', hideCarForm);
     document.getElementById('carFormElement')?.addEventListener('submit', handleCarSubmit);
+
+    // If coming from Edit Car on details page, open the form in edit mode after render
+    if (window.pendingEditCarId) {
+      const editId = window.pendingEditCarId;
+      window.pendingEditCarId = null;
+      setTimeout(() => editCar(editId), 0);
+    }
     
     // Attach action buttons
     document.querySelectorAll('.btn-icon').forEach(btn => {
@@ -396,6 +412,7 @@ function showCarForm(car = null) {
     document.getElementById('carMotor').value = car.motor || '';
     document.getElementById('carEsc').value = car.esc || '';
     document.getElementById('carNotes').value = car.notes || '';
+    document.getElementById('carTransponder').value = car.transponder || '';
     
     // Handle existing image
     currentCarImage = car.image || null;
@@ -413,6 +430,7 @@ function showCarForm(car = null) {
     formTitle.textContent = 'Add Car';
     document.getElementById('carFormElement').reset();
     document.getElementById('carId').value = '';
+    document.getElementById('carTransponder').value = '';
     currentCarImage = null;
     const previewEl = document.getElementById('carImagePreview');
     const removeBtnEl = document.getElementById('removeImageBtn');
@@ -443,6 +461,7 @@ async function handleCarSubmit(e) {
     chassis: document.getElementById('carChassis').value.trim(),
     motor: document.getElementById('carMotor').value.trim(),
     esc: document.getElementById('carEsc').value.trim(),
+    transponder: document.getElementById('carTransponder').value.trim(),
     notes: document.getElementById('carNotes').value.trim(),
     image: currentCarImage || null,
     updatedAt: new Date().toISOString()
@@ -683,7 +702,9 @@ async function renderCarDetailPage() {
         <button class="btn-back" onclick="window.location.hash='#/garage'">← Back to Garage</button>
         
         <!-- Car Summary -->
-        <h2>${escapeHtml(car.name)}</h2>
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+          <h2 style="margin: 0;">${escapeHtml(car.name)}</h2>
+        </div>
         ${car.image ? `
           <div style="margin-bottom: 16px; text-align: center;">
             <img src="${car.image}" alt="${escapeHtml(car.name)}" style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: var(--shadow-md);">
@@ -701,6 +722,9 @@ async function renderCarDetailPage() {
           </div>
           <div class="detail-row">
             <strong>ESC:</strong> ${car.esc ? escapeHtml(car.esc) : '-'}
+          </div>
+          <div class="detail-row">
+            <strong>Transponder:</strong> ${car.transponder ? escapeHtml(car.transponder) : '-'}
           </div>
         </div>
         
@@ -749,33 +773,32 @@ async function renderCarDetailPage() {
               <label for="setupVersionLabel">Version Label</label>
               <input type="text" id="setupVersionLabel" placeholder="e.g. Baseline, Q1, Main, Race A">
             </div>
-            
-            <!-- Chassis Section -->
+            <!-- Chassis -->
             <h4 style="margin: 20px 0 12px 0; color: var(--primary-color);">Chassis</h4>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
               <div class="form-group">
                 <label for="rideHeightF">Ride Height Front</label>
-                <input type="text" id="rideHeightF" placeholder="e.g. 4mm">
+                <input type="text" id="rideHeightF" placeholder="e.g. 20mm">
               </div>
               <div class="form-group">
                 <label for="rideHeightR">Ride Height Rear</label>
-                <input type="text" id="rideHeightR" placeholder="e.g. 4.5mm">
+                <input type="text" id="rideHeightR" placeholder="e.g. 20mm">
               </div>
               <div class="form-group">
                 <label for="droopF">Droop Front</label>
-                <input type="text" id="droopF" placeholder="e.g. 3mm">
+                <input type="text" id="droopF" placeholder="e.g. 1mm">
               </div>
               <div class="form-group">
                 <label for="droopR">Droop Rear</label>
-                <input type="text" id="droopR" placeholder="e.g. 3mm">
+                <input type="text" id="droopR" placeholder="e.g. 1mm">
               </div>
             </div>
             <div class="form-group">
               <label for="weightBalanceNotes">Weight Balance Notes</label>
               <input type="text" id="weightBalanceNotes" placeholder="Weight distribution, battery position, etc.">
             </div>
-            
-            <!-- Suspension Section -->
+
+            <!-- Suspension -->
             <h4 style="margin: 20px 0 12px 0; color: var(--primary-color);">Suspension</h4>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
               <div class="form-group">
@@ -827,8 +850,8 @@ async function renderCarDetailPage() {
                 <input type="text" id="toeR" placeholder="e.g. 1°">
               </div>
             </div>
-            
-            <!-- Drivetrain Section -->
+
+            <!-- Drivetrain -->
             <h4 style="margin: 20px 0 12px 0; color: var(--primary-color);">Drivetrain</h4>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
               <div class="form-group">
@@ -860,8 +883,8 @@ async function renderCarDetailPage() {
               <label for="centerDiffOil">Center Diff Oil</label>
               <input type="text" id="centerDiffOil" placeholder="e.g. 5000cst (4WD only)">
             </div>
-            
-            <!-- Tires Section -->
+
+            <!-- Tires -->
             <h4 style="margin: 20px 0 12px 0; color: var(--primary-color);">Tires</h4>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
               <div class="form-group">
@@ -885,8 +908,8 @@ async function renderCarDetailPage() {
               <label for="prepNotes">Prep Notes</label>
               <input type="text" id="prepNotes" placeholder="Tire prep and treatment notes">
             </div>
-            
-            <!-- Electronics Section -->
+
+            <!-- Electronics -->
             <h4 style="margin: 20px 0 12px 0; color: var(--primary-color);">Electronics</h4>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
               <div class="form-group">
@@ -906,8 +929,8 @@ async function renderCarDetailPage() {
               <label for="motorNotes">Motor Notes</label>
               <input type="text" id="motorNotes" placeholder="Motor setup and observations">
             </div>
-            
-            <!-- General Section -->
+
+            <!-- General -->
             <h4 style="margin: 20px 0 12px 0; color: var(--primary-color);">General</h4>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
               <div class="form-group">
@@ -923,70 +946,92 @@ async function renderCarDetailPage() {
               <label for="setupNotes">Notes</label>
               <textarea id="setupNotes" rows="3" placeholder="General setup notes and observations..."></textarea>
             </div>
-            
+
             <div style="display: flex; gap: 8px;">
               <button type="submit" class="btn" ${tracks.length === 0 ? 'disabled' : ''}>Save Setup</button>
               <button type="button" class="btn btn-secondary" id="cancelSetupBtn">Cancel</button>
             </div>
           </form>
         </div>
-        
         <!-- Setup List -->
-        <div id="setupList">
-          ${setups.length === 0 ? `
-            <div class="empty-state">
-              <div class="empty-state-icon">🔧</div>
-              <p class="empty-state-text">No setups recorded yet</p>
-            </div>
-          ` : `
-            <div class="setup-list">
-              ${await Promise.all(setups.map(async setup => {
-                const track = await get('tracks', setup.trackId);
-                const trackName = track ? track.name : 'Unknown Track';
-                return `
-                  <div class="setup-item" data-id="${setup.id}">
-                    <div class="setup-info">
-                      <h4 class="setup-label">${escapeHtml(trackName)}${setup.versionLabel ? ` - ${escapeHtml(setup.versionLabel)}` : ''}</h4>
-                      <p class="setup-date">${new Date(setup.createdAt).toLocaleString()}</p>
-                    </div>
-                    <div class="setup-actions">
-                      <button class="btn-icon" data-action="view" data-id="${setup.id}" title="View">👁️</button>
-                      <button class="btn-icon" data-action="edit" data-id="${setup.id}" title="Edit">✏️</button>
-                      <button class="btn-icon" data-action="compare" data-id="${setup.id}" title="Compare">⚖️</button>
-                      <button class="btn-icon" data-action="delete" data-id="${setup.id}" title="Delete">🗑️</button>
-                    </div>
-                  </div>
-                `;
-              })).then(items => items.join(''))}
-            </div>
-          `}
-        </div>
+        <div id="setupList"></div>
       </div>
     `;
-    
+
     // Attach event listeners
     document.getElementById('addSetupBtn')?.addEventListener('click', () => showSetupForm(carId));
     document.getElementById('cancelSetupBtn')?.addEventListener('click', hideSetupForm);
     document.getElementById('setupFormElement')?.addEventListener('submit', handleSetupSubmit);
-    
-    // Attach setup action buttons
-    document.querySelectorAll('.setup-item .btn-icon').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const action = e.currentTarget.dataset.action;
-        const id = e.currentTarget.dataset.id;
-        
-        if (action === 'view') {
-          window.location.hash = `#/setup/${id}`;
-        } else if (action === 'edit') {
-          editSetup(id);
-        } else if (action === 'compare') {
-          window.location.hash = `#/compare?carId=${carId}&a=${id}`;
-        } else if (action === 'delete') {
-          deleteSetup(id, carId);
-        }
+
+    // Render setup list
+    const setupListDiv = document.getElementById('setupList');
+    if (setupListDiv) {
+      if (setups.length === 0) {
+        setupListDiv.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">🔧</div>
+            <p class="empty-state-text">No setups recorded yet</p>
+          </div>
+        `;
+      } else {
+        setupListDiv.innerHTML = `
+          <div class="setup-list">
+            ${await Promise.all(setups.map(async setup => {
+              const track = await get('tracks', setup.trackId);
+              const trackName = track ? track.name : 'Unknown Track';
+              return `
+                <div class="setup-item" data-id="${setup.id}">
+                  <div class="setup-info">
+                    <h4 class="setup-label">${escapeHtml(trackName)}${setup.versionLabel ? ` - ${escapeHtml(setup.versionLabel)}` : ''}</h4>
+                    <p class="setup-date">${new Date(setup.createdAt).toLocaleString()}</p>
+                  </div>
+                  <div class="setup-actions">
+                    <button class="btn-icon" data-action="view" data-id="${setup.id}" title="View">👁️</button>
+                    <button class="btn-icon" data-action="edit" data-id="${setup.id}" title="Edit">✏️</button>
+                    <button class="btn-icon" data-action="compare" data-id="${setup.id}" title="Compare">⚖️</button>
+                    <button class="btn-icon" data-action="delete" data-id="${setup.id}" title="Delete">🗑️</button>
+                  </div>
+                </div>
+              `;
+            })).then(items => items.join(''))}
+          </div>
+        `;
+      }
+      // Attach setup action buttons
+      setupListDiv.querySelectorAll('.setup-item .btn-icon').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const action = e.currentTarget.dataset.action;
+          const id = e.currentTarget.dataset.id;
+          if (action === 'view') {
+            window.location.hash = `#/setup/${id}`;
+          } else if (action === 'edit') {
+            editSetup(id);
+          } else if (action === 'compare') {
+            window.location.hash = `#/compare?carId=${carId}&a=${id}`;
+          } else if (action === 'delete') {
+            deleteSetup(id, carId);
+          }
+        });
       });
-    });
-    
+    }
+
+    // Append Edit Car button at the very bottom after all content
+    const pageDiv = app.querySelector('.page');
+    if (pageDiv) {
+      const btnDiv = document.createElement('div');
+      btnDiv.style.marginTop = '32px';
+      btnDiv.style.textAlign = 'center';
+      btnDiv.innerHTML = '<button class="btn btn-secondary" id="editCarBtn">Edit Car</button>';
+      pageDiv.appendChild(btnDiv);
+      const editBtn = btnDiv.querySelector('#editCarBtn');
+      if (editBtn) {
+        editBtn.addEventListener('click', () => {
+          window.pendingEditCarId = carId;
+          window.location.hash = '#/garage';
+        });
+      }
+    }
+
   } catch (error) {
     console.error('❌ Failed to load car details:', error);
     app.innerHTML = '<div class="page"><p>Failed to load car details</p></div>';
@@ -1875,8 +1920,10 @@ function showTrackForm(track = null) {
     document.getElementById('trackId').value = track.id;
     document.getElementById('trackName').value = track.name || '';
     document.getElementById('trackAddress').value = track.address || '';
-    document.getElementById('trackLat').value = track.lat || '';
-    document.getElementById('trackLng').value = track.lng || '';
+    // Remove lat/lng fields
+    // document.getElementById('trackLat').value = track.lat || '';
+    // document.getElementById('trackLng').value = track.lng || '';
+    document.getElementById('trackWebsiteUrl').value = track.websiteUrl || '';
     document.getElementById('trackSurface').value = track.surface || '';
     document.getElementById('trackLiveRcUrl').value = track.liveRcUrl || '';
     document.getElementById('trackNotes').value = track.notes || '';
@@ -1885,6 +1932,7 @@ function showTrackForm(track = null) {
     formTitle.textContent = 'Add Track';
     document.getElementById('trackFormElement').reset();
     document.getElementById('trackId').value = '';
+    document.getElementById('trackWebsiteUrl').value = '';
   }
   
   form.style.display = 'block';
@@ -1904,8 +1952,7 @@ async function handleTrackSubmit(e) {
     id: id || generateId('track'),
     name: document.getElementById('trackName').value.trim(),
     address: document.getElementById('trackAddress').value.trim(),
-    lat: document.getElementById('trackLat').value ? parseFloat(document.getElementById('trackLat').value) : null,
-    lng: document.getElementById('trackLng').value ? parseFloat(document.getElementById('trackLng').value) : null,
+    websiteUrl: document.getElementById('trackWebsiteUrl').value.trim(),
     surface: document.getElementById('trackSurface').value.trim(),
     liveRcUrl: document.getElementById('trackLiveRcUrl').value.trim(),
     notes: document.getElementById('trackNotes').value.trim(),
@@ -1987,11 +2034,7 @@ async function renderTrackDetailPage() {
     let appleMapsUrl = '';
     let googleMapsUrl = '';
     
-    if (track.lat && track.lng) {
-      // Use coordinates
-      appleMapsUrl = `https://maps.apple.com/?ll=${track.lat},${track.lng}&q=${encodeURIComponent(track.name)}`;
-      googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${track.lat},${track.lng}`;
-    } else if (track.address) {
+    if (track.address) {
       // Use address for search
       const searchQuery = encodeURIComponent(`${track.name} ${track.address}`);
       appleMapsUrl = `https://maps.apple.com/?q=${searchQuery}`;
@@ -2015,11 +2058,12 @@ async function renderTrackDetailPage() {
               <strong>Address:</strong> ${escapeHtml(track.address)}
             </div>
           ` : ''}
-          ${track.lat && track.lng ? `
+          ${track.websiteUrl ? `
             <div class="detail-row">
-              <strong>Coordinates:</strong> ${track.lat}, ${track.lng}
+              <strong>Website:</strong> <a href="${escapeHtml(track.websiteUrl)}" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color); word-break: break-all;">${escapeHtml(track.websiteUrl)}</a>
             </div>
           ` : ''}
+          <!-- Coordinates removed -->
           ${track.notes ? `
             <div class="detail-row">
               <strong>Notes:</strong><br>
@@ -2037,6 +2081,15 @@ async function renderTrackDetailPage() {
                 <a href="${appleMapsUrl}" target="_blank" class="btn" style="text-decoration: none;">🍎 Apple Maps</a>
                 <a href="${googleMapsUrl}" target="_blank" class="btn" style="text-decoration: none;">🌎 Google Maps</a>
               </div>
+            </div>
+          ` : ''}
+          
+          ${track.websiteUrl ? `
+            <div>
+              <h3 style="font-size: 16px; margin-bottom: 8px;">Track Website</h3>
+              <a href="${escapeHtml(track.websiteUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
+                🌐 Visit Website
+              </a>
             </div>
           ` : ''}
           
@@ -2059,8 +2112,149 @@ async function renderTrackDetailPage() {
             <small style="color: var(--text-secondary);">Created: ${new Date(track.createdAt).toLocaleString()}</small>
           </div>
         ` : ''}
+        
+        <!-- Track Usage & Stats -->
+        <div class="page-content" style="margin-top: 24px;">
+          <h3>Track Usage & Stats</h3>
+
+          <div class="analytics-kpi-grid" style="margin-bottom: 12px;">
+            <div class="kpi-card">
+              <div class="kpi-label">Best Lap</div>
+              <div class="kpi-value" id="trackBestLapKpi">-</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Avg Lap</div>
+              <div class="kpi-value" id="trackAvgLapKpi">-</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label"># Runs</div>
+              <div class="kpi-value" id="trackRunCountKpi">0</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label"># Events</div>
+              <div class="kpi-value" id="trackEventCountKpi">0</div>
+            </div>
+          </div>
+
+          <div style="margin-top: 12px;">
+            <h4>Top Cars</h4>
+            <div id="trackTopCarsTable" style="overflow-x: auto;"></div>
+          </div>
+        </div>
       </div>
     `;
+    
+    // Load analytics for this track and render stats/charts (non-blocking, track-scoped)
+    (async () => {
+      try {
+        console.log('🔄 Analytics IIFE starting for trackId:', trackId);
+        const analytics = await loadAnalyticsData({ forceRefresh: false });
+        const { cars, events, tracks, enrichedRuns, carsById } = analytics;
+        
+        console.log('📊 Loaded analytics, enrichedRuns count:', enrichedRuns.length);
+
+        const { filteredRuns, kpis, trendSeries } = aggregateRuns({
+          runs: enrichedRuns,
+          events,
+          tracks,
+          cars,
+          filters: { trackId }  // <- Track-specific filter
+        });
+
+        console.log('📈 Aggregation result:', { filteredRuns: filteredRuns.length, kpis });
+        console.log('📊 Trend series:', {
+          trendArray: trendSeries?.length || 0
+        });
+
+        // Populate KPI fields
+        const bestEl = document.getElementById('trackBestLapKpi');
+        if (bestEl) {
+          const bestText = kpis.bestLapMin !== null ? formatLapTime(kpis.bestLapMin) : '-';
+          console.log('✏️ Setting bestEl.textContent to:', bestText);
+          bestEl.textContent = bestText;
+        }
+
+        const avgEl = document.getElementById('trackAvgLapKpi');
+        if (avgEl) {
+          const avgText = kpis.avgLapMean !== null ? formatLapTime(kpis.avgLapMean) : '-';
+          avgEl.textContent = avgText;
+        }
+
+        const runCountEl = document.getElementById('trackRunCountKpi');
+        if (runCountEl) {
+          runCountEl.textContent = String(kpis.runCount || 0);
+        }
+
+        const eventCountEl = document.getElementById('trackEventCountKpi');
+        if (eventCountEl) {
+          eventCountEl.textContent = String(kpis.eventCount || 0);
+        }
+
+        // Render top cars table
+        const byCarId = {};
+        filteredRuns.forEach(run => {
+          if (run.carId) {
+            byCarId[run.carId] = (byCarId[run.carId] || 0) + 1;
+          }
+        });
+        
+        if (filteredRuns.length > 0 && Object.keys(byCarId).length > 0) {
+          const topCars = Object.entries(byCarId)
+            .map(([carId, count]) => ({ carId, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+
+          if (topCars.length > 0) {
+            const tableContainer = document.getElementById('trackTopCarsTable');
+            if (tableContainer) {
+              const tableHtml = `
+                <table style="width: 100%; border-collapse: collapse;">
+                  <thead style="background: var(--surface-secondary);">
+                    <tr>
+                      <th style="text-align: left; padding: 8px; border-bottom: 1px solid var(--border-color);">Car</th>
+                      <th style="text-align: right; padding: 8px; border-bottom: 1px solid var(--border-color);">Runs</th>
+                      <th style="text-align: right; padding: 8px; border-bottom: 1px solid var(--border-color);">Best Lap</th>
+                      <th style="text-align: right; padding: 8px; border-bottom: 1px solid var(--border-color);">Avg Lap</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${topCars.map(({ carId, count }) => {
+                      const car = cars.find(c => c.id === carId);
+                      const carRuns = filteredRuns.filter(r => r.carId === carId);
+                      const carBest = carRuns.length > 0 
+                        ? Math.min(...carRuns.map(r => parseLap(r.bestLap)).filter(b => b !== null && b !== undefined))
+                        : null;
+                      const carAvg = carRuns.length > 0
+                        ? carRuns.reduce((sum, r) => sum + (parseLap(r.avgLap) || 0), 0) / carRuns.length
+                        : null;
+
+                      return `
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                          <td style="padding: 8px;">
+                            <a href="#/car/${carId}" style="color: var(--primary-color); text-decoration: none;">
+                              ${car ? escapeHtml(car.name) : carId}
+                            </a>
+                          </td>
+                          <td style="text-align: right; padding: 8px;">${count}</td>
+                          <td style="text-align: right; padding: 8px;">${carBest !== null ? formatLapTime(carBest) : '-'}</td>
+                          <td style="text-align: right; padding: 8px;">${carAvg !== null ? formatLapTime(carAvg) : '-'}</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              `;
+              tableContainer.innerHTML = tableHtml;
+            }
+          }
+        }
+
+        console.log('✅ Track analytics loaded and rendered successfully');
+      } catch (err) {
+        console.warn('❌ Failed to load track analytics in track detail:', err);
+      }
+    })();
+    
   } catch (error) {
     console.error('❌ Failed to load track:', error);
     app.innerHTML = '<div class="page"><p>Failed to load track details</p></div>';
@@ -3167,7 +3361,7 @@ async function renderEventsPage() {
                       <p class="event-detail">📅 ${dateStr}${event.startTime ? ` at ${event.startTime}` : ''}</p>
                     </div>
                     <div class="event-actions">
-                      <button class="btn-icon" data-action="view" data-id="${event.id}" title="View">👁️</button>
+                      
                       <button class="btn-icon" data-action="edit" data-id="${event.id}" title="Edit">✏️</button>
                       <button class="btn-icon" data-action="delete" data-id="${event.id}" title="Delete">🗑️</button>
                     </div>
@@ -3258,15 +3452,9 @@ async function renderTracksPage() {
               <label for="trackAddress">Address</label>
               <input type="text" id="trackAddress" placeholder="Street address or location">
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-              <div class="form-group">
-                <label for="trackLat">Latitude</label>
-                <input type="number" id="trackLat" step="any" placeholder="e.g. 37.7749">
-              </div>
-              <div class="form-group">
-                <label for="trackLng">Longitude</label>
-                <input type="number" id="trackLng" step="any" placeholder="e.g. -122.4194">
-              </div>
+            <div class="form-group">
+              <label for="trackWebsiteUrl">Website URL</label>
+              <input type="url" id="trackWebsiteUrl" placeholder="https://example.com/">
             </div>
             <div class="form-group">
               <label for="trackSurface">Surface</label>
@@ -3302,9 +3490,10 @@ async function renderTracksPage() {
                     <h3 class="track-name">${escapeHtml(track.name)}</h3>
                     ${track.address ? `<div class="track-detail">${escapeHtml(track.address)}</div>` : ''}
                     ${track.surface ? `<div class="track-detail">Surface: ${escapeHtml(track.surface)}</div>` : ''}
+                    ${track.websiteUrl ? `<div class="track-detail"><a href="${escapeHtml(track.websiteUrl)}" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color); text-decoration: none;">🌐 Website</a></div>` : ''}
                   </div>
                   <div class="track-actions">
-                    <button class="btn-icon" data-action="view" data-id="${track.id}" title="View">👁️</button>
+                    
                     <button class="btn-icon" data-action="edit" data-id="${track.id}" title="Edit">✏️</button>
                     <button class="btn-icon" data-action="delete" data-id="${track.id}" title="Delete">🗑️</button>
                   </div>
@@ -3315,6 +3504,9 @@ async function renderTracksPage() {
         </div>
       `;
       document.getElementById('trackFormElement')?.addEventListener('submit', handleTrackSubmit);
+      // Show/hide track form controls
+      document.getElementById('addTrackBtn')?.addEventListener('click', () => showTrackForm());
+      document.getElementById('cancelTrackBtn')?.addEventListener('click', hideTrackForm);
     
     // Attach action buttons
     document.querySelectorAll('.track-item .btn-icon').forEach(btn => {
