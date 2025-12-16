@@ -3200,6 +3200,15 @@ async function renderEventsPage() {
         }
       });
     });
+    // Make whole event item clickable to view event, but ignore clicks on action buttons
+    document.querySelectorAll('.event-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.event-actions')) return;
+        const id = item.dataset.id;
+        if (id) window.location.hash = `#/event/${id}`;
+      });
+      item.style.cursor = 'pointer';
+    });
     
   } catch (error) {
     console.error('❌ Failed to load events:', error);
@@ -3321,6 +3330,15 @@ async function renderTracksPage() {
           deleteTrack(id);
         }
       });
+    });
+    // Make whole track item clickable to view track, but ignore clicks on action buttons
+    document.querySelectorAll('.track-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.track-actions')) return;
+        const id = item.dataset.id;
+        if (id) window.location.hash = `#/track/${id}`;
+      });
+      item.style.cursor = 'pointer';
     });
     
   } catch (error) {
@@ -4607,7 +4625,7 @@ async function renderSettingsPage() {
         <div class="page-content" style="margin-bottom: 16px;">
           <h3 style="margin-bottom: 12px;">App Information</h3>
           <div class="detail-row">
-            <strong>Version:</strong> 1.1.1
+            <strong>Version:</strong> 1.1.2
           </div>
           <div class="detail-row">
             <strong>Database:</strong> rc_program v1
