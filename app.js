@@ -3162,7 +3162,11 @@ async function renderEventDetailPage() {
               </div>
               <div class="form-group">
                 <label for="runLogPosition">Position</label>
-                <input type="text" id="runLogPosition" placeholder="e.g. 1st, P2, DNF">
+                <select id="runLogPosition">
+                  <option value="">Select</option>
+                  ${Array.from({length:20}, (_,i) => `<option value="${i+1}">${i+1}</option>`).join('')}
+                  <option value="DNF">DNF</option>
+                </select>
               </div>
             </div>
             <div class="form-group">
@@ -3433,6 +3437,11 @@ function showRunLogForm(eventId, runLog = null, preSelectedCarId = null) {
     document.getElementById('runLogFormElement').reset();
     document.getElementById('runLogId').value = '';
     document.getElementById('runLogEventId').value = eventId;
+    // Set sensible defaults for new run
+    const timeEl = document.getElementById('runLogTime');
+    if (timeEl) timeEl.value = '5:00';
+    const posEl = document.getElementById('runLogPosition');
+    if (posEl) posEl.value = '';
     
     // Reset track condition buttons
     document.querySelectorAll('.track-condition-btn').forEach(btn => {
