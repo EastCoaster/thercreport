@@ -295,10 +295,13 @@ async function renderGaragePage() {
               <textarea id="carNotes" rows="3" placeholder="Additional notes..."></textarea>
             </div>
             <div class="form-group">
-              <label for="carImage">Car Photo</label>
-              <input type="file" id="carImage" accept="image/*" capture="environment" style="display: none;">
+              <label for="carImageUpload">Car Photo</label>
+              <!-- Separate inputs for capture vs upload -->
+              <input type="file" id="carImageCapture" accept="image/*" capture="environment" style="display: none;">
+              <input type="file" id="carImageUpload" accept="image/*" style="display: none;">
               <div id="carImagePreview" style="margin-top: 8px;"></div>
               <div style="display: flex; gap: 8px; margin-top: 8px;">
+                <button type="button" class="btn btn-secondary" id="uploadImageBtn">🖼️ Upload Photo</button>
                 <button type="button" class="btn btn-secondary" id="captureImageBtn">📷 Take Photo</button>
                 <button type="button" class="btn btn-secondary" id="removeImageBtn" style="display: none;">Remove Photo</button>
               </div>
@@ -306,6 +309,18 @@ async function renderGaragePage() {
             <div style="display: flex; gap: 8px;">
               <button type="submit" class="btn">Save</button>
               <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+            </div>
+            
+            <!-- Car Delete Section (shown only in edit mode) -->
+            <div id="carDeleteSection" style="display: none; margin-top: 24px; padding-top: 24px; border-top: 2px solid var(--border-color);">
+              <div id="carSlideContainer" class="slide-delete" style="position: relative; height: 50px; background: linear-gradient(90deg, #ff6666, #ff4444); border-radius: 12px; overflow: hidden; touch-action: none; user-select: none; cursor: grab;">
+                <div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 16px;">
+                  Slide To Delete
+                </div>
+                <div id="carSlideThumb" style="position: absolute; left: 0; top: 0; height: 100%; width: 60px; background: rgba(0,0,0,0.15); border-radius: 12px 0 0 12px; display: flex; align-items: center; justify-content: center; cursor: grab; color: white; font-size: 24px; transition: width 0.2s, box-shadow 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                  🗑️
+                </div>
+              </div>
             </div>
           </form>
         </div>
@@ -335,7 +350,6 @@ async function renderGaragePage() {
                   <div class="car-actions">
                     
                     <button class="btn-icon" data-action="edit" data-id="${car.id}" title="Edit">✏️</button>
-                    <button class="btn-icon" data-action="delete" data-id="${car.id}" title="Delete">🗑️</button>
                   </div>
                 </div>
               `).join('')}
@@ -448,6 +462,70 @@ function showCarForm(car = null) {
   
   form.style.display = 'block';
   document.getElementById('carName').focus();
+  
+  // Setup slide-to-delete for edit mode (match track behavior)
+  const carDeleteSection = document.getElementById('carDeleteSection');
+  if (car && carDeleteSection) {
+    carDeleteSection.style.display = 'block';
+    const slideContainer = document.getElementById('carSlideContainer');
+    const slideThumbOld = document.getElementById('carSlideThumb');
+    if (slideContainer && slideThumbOld) {
+      // Reset listeners by cloning
+      const slideThumb = slideThumbOld.cloneNode(true);
+      slideThumbOld.parentNode.replaceChild(slideThumb, slideThumbOld);
+
+      let isSliding = false;
+      let startX = 0;
+      let currentX = 0;
+
+      const deleteThreshold = () => (slideContainer.offsetWidth * 0.7) || 200;
+
+      const resetSlide = () => {
+        slideThumb.style.width = '60px';
+        slideThumb.style.left = '0px';
+        currentX = 0;
+      };
+
+      const onDown = (clientX) => {
+        isSliding = true;
+        startX = clientX;
+        slideThumb.style.cursor = 'grabbing';
+      };
+
+      const onMove = (clientX) => {
+        if (!isSliding) return;
+        currentX = Math.max(0, clientX - startX);
+        slideThumb.style.left = currentX + 'px';
+        slideThumb.style.width = (60 + currentX) + 'px';
+      };
+
+      const onEnd = () => {
+        if (!isSliding) return;
+        isSliding = false;
+        slideThumb.style.cursor = 'grab';
+        if (currentX >= deleteThreshold()) {
+          if (confirm('Are you sure you want to delete this car? This action cannot be undone.')) {
+            deleteCar(car.id);
+          } else {
+            resetSlide();
+          }
+        } else {
+          resetSlide();
+        }
+      };
+
+      // Mouse
+      slideThumb.addEventListener('mousedown', (e) => onDown(e.clientX));
+      document.addEventListener('mousemove', (e) => onMove(e.clientX));
+      document.addEventListener('mouseup', onEnd);
+      // Touch
+      slideThumb.addEventListener('touchstart', (e) => onDown(e.touches[0].clientX));
+      document.addEventListener('touchmove', (e) => onMove(e.touches[0].clientX));
+      document.addEventListener('touchend', onEnd);
+    }
+  } else if (carDeleteSection) {
+    carDeleteSection.style.display = 'none';
+  }
   
   // Setup image capture handlers
   setupImageCapture();
@@ -575,38 +653,49 @@ async function resizeImage(file, maxWidth = 320, quality = 0.8) {
 }
 
 function setupImageCapture() {
-  const fileInput = document.getElementById('carImage');
+  const captureInput = document.getElementById('carImageCapture');
+  const uploadInput = document.getElementById('carImageUpload');
   const captureBtn = document.getElementById('captureImageBtn');
+  const uploadBtn = document.getElementById('uploadImageBtn');
   const removeBtn = document.getElementById('removeImageBtn');
   const preview = document.getElementById('carImagePreview');
-  
-  if (!fileInput || !captureBtn) return;
-  
-  captureBtn.addEventListener('click', () => fileInput.click());
-  
-  fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+
+  if ((!captureInput && !uploadInput) || (!captureBtn && !uploadBtn)) return;
+
+  // Desktop: hide camera capture button, show upload; Mobile: show both
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobi/i.test(navigator.userAgent);
+  if (captureBtn) captureBtn.style.display = isMobile ? 'inline-block' : 'none';
+  if (uploadBtn) uploadBtn.style.display = 'inline-block';
+
+  const processFile = async (file, sourceLabel = 'Photo added') => {
     if (!file) return;
-    
     try {
+      // Resize to the same constraints used for camera capture
       const resizedDataUrl = await resizeImage(file, 320, 0.75);
       currentCarImage = resizedDataUrl;
       preview.innerHTML = `<img src="${resizedDataUrl}" style="max-width: 100%; max-height: 200px; border-radius: 6px; box-shadow: var(--shadow-sm);">`;
-      if (removeBtn) {
-        removeBtn.style.display = 'inline-block';
-      }
-      toast('Photo captured');
+      if (removeBtn) removeBtn.style.display = 'inline-block';
+      toast(sourceLabel);
     } catch (error) {
       console.error('Failed to process image:', error);
       toast('Failed to process image');
     }
-  });
-  
+  };
+
+  // Button triggers
+  if (captureBtn && captureInput) captureBtn.addEventListener('click', () => captureInput.click());
+  if (uploadBtn && uploadInput) uploadBtn.addEventListener('click', () => uploadInput.click());
+
+  // Input change handlers
+  if (captureInput) captureInput.addEventListener('change', (e) => processFile(e.target.files?.[0], 'Photo captured'));
+  if (uploadInput) uploadInput.addEventListener('change', (e) => processFile(e.target.files?.[0], 'Photo uploaded'));
+
   if (removeBtn) {
     removeBtn.addEventListener('click', () => {
       currentCarImage = null;
       preview.innerHTML = '';
-      fileInput.value = '';
+      if (captureInput) captureInput.value = '';
+      if (uploadInput) uploadInput.value = '';
       removeBtn.style.display = 'none';
       toast('Photo removed');
     });
@@ -1920,6 +2009,7 @@ async function renderComparePage() {
 function showTrackForm(track = null) {
   const form = document.getElementById('trackForm');
   const formTitle = document.getElementById('trackFormTitle');
+  const deleteSection = document.getElementById('trackDeleteSection');
   
   if (track) {
     // Edit mode
@@ -1934,12 +2024,90 @@ function showTrackForm(track = null) {
     document.getElementById('trackSurface').value = track.surface || '';
     document.getElementById('trackLiveRcUrl').value = track.liveRcUrl || '';
     document.getElementById('trackNotes').value = track.notes || '';
+    
+    // Show delete section
+    if (deleteSection) {
+      deleteSection.style.display = 'block';
+      
+      // Setup slide-to-delete
+      const slideThumb = document.getElementById('slideDeleteThumb');
+      const slideContainer = document.getElementById('slideDeleteContainer');
+      if (slideThumb && slideContainer) {
+        // Clear previous event listeners by cloning
+        const newSlideThumb = slideThumb.cloneNode(true);
+        slideThumb.parentNode.replaceChild(newSlideThumb, slideThumb);
+        
+        let isSliding = false;
+        let startX = 0;
+        let currentX = 0;
+        const deleteThreshold = slideContainer.offsetWidth * 0.7 || 200;
+        
+        const resetSlide = () => {
+          if (newSlideThumb) {
+            newSlideThumb.style.width = '60px';
+            newSlideThumb.style.left = '0px';
+          }
+          currentX = 0;
+        };
+        
+        newSlideThumb.addEventListener('mousedown', (e) => {
+          isSliding = true;
+          startX = e.clientX;
+          newSlideThumb.style.cursor = 'grabbing';
+        });
+        
+        newSlideThumb.addEventListener('touchstart', (e) => {
+          isSliding = true;
+          startX = e.touches[0].clientX;
+        });
+        
+        const handleMouseMove = (e) => {
+          if (!isSliding) return;
+          currentX = Math.max(0, e.clientX - startX);
+          newSlideThumb.style.left = currentX + 'px';
+          newSlideThumb.style.width = (60 + currentX) + 'px';
+        };
+        
+        const handleTouchMove = (e) => {
+          if (!isSliding) return;
+          currentX = Math.max(0, e.touches[0].clientX - startX);
+          newSlideThumb.style.left = currentX + 'px';
+          newSlideThumb.style.width = (60 + currentX) + 'px';
+        };
+        
+        const handleEnd = () => {
+          if (!isSliding) return;
+          isSliding = false;
+          newSlideThumb.style.cursor = 'grab';
+          
+          if (currentX >= deleteThreshold) {
+            if (confirm('Are you sure you want to delete this track? This action cannot be undone.')) {
+              deleteTrack(track.id);
+            } else {
+              resetSlide();
+            }
+          } else {
+            resetSlide();
+          }
+        };
+        
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('touchmove', handleTouchMove);
+        document.addEventListener('mouseup', handleEnd);
+        document.addEventListener('touchend', handleEnd);
+      }
+    }
   } else {
     // Add mode
     formTitle.textContent = 'Add Track';
     document.getElementById('trackFormElement').reset();
     document.getElementById('trackId').value = '';
     document.getElementById('trackWebsiteUrl').value = '';
+    
+    // Hide delete section
+    if (deleteSection) {
+      deleteSection.style.display = 'none';
+    }
   }
   
   // Hide Add Track button and track list when in edit mode
@@ -2151,7 +2319,6 @@ async function renderTrackDetailPage() {
         </div>
       </div>
     `;
-    
     // Load analytics for this track and render stats/charts (non-blocking, track-scoped)
     (async () => {
       try {
@@ -2341,6 +2508,70 @@ function showEventForm(event = null) {
   
   form.style.display = 'block';
   document.getElementById('eventTitle').focus();
+  
+  // Setup slide-to-delete for edit mode (match track behavior)
+  const eventDeleteSection = document.getElementById('eventDeleteSection');
+  if (event && eventDeleteSection) {
+    eventDeleteSection.style.display = 'block';
+    const slideContainer = document.getElementById('eventSlideContainer');
+    const slideThumbOld = document.getElementById('eventSlideThumb');
+    if (slideContainer && slideThumbOld) {
+      // Reset listeners by cloning
+      const slideThumb = slideThumbOld.cloneNode(true);
+      slideThumbOld.parentNode.replaceChild(slideThumb, slideThumbOld);
+
+      let isSliding = false;
+      let startX = 0;
+      let currentX = 0;
+
+      const deleteThreshold = () => (slideContainer.offsetWidth * 0.7) || 200;
+
+      const resetSlide = () => {
+        slideThumb.style.width = '60px';
+        slideThumb.style.left = '0px';
+        currentX = 0;
+      };
+
+      const onDown = (clientX) => {
+        isSliding = true;
+        startX = clientX;
+        slideThumb.style.cursor = 'grabbing';
+      };
+
+      const onMove = (clientX) => {
+        if (!isSliding) return;
+        currentX = Math.max(0, clientX - startX);
+        slideThumb.style.left = currentX + 'px';
+        slideThumb.style.width = (60 + currentX) + 'px';
+      };
+
+      const onEnd = () => {
+        if (!isSliding) return;
+        isSliding = false;
+        slideThumb.style.cursor = 'grab';
+        if (currentX >= deleteThreshold()) {
+          if (confirm('Are you sure you want to delete this event? This action cannot be undone.')) {
+            deleteEvent(event.id);
+          } else {
+            resetSlide();
+          }
+        } else {
+          resetSlide();
+        }
+      };
+
+      // Mouse
+      slideThumb.addEventListener('mousedown', (e) => onDown(e.clientX));
+      document.addEventListener('mousemove', (e) => onMove(e.clientX));
+      document.addEventListener('mouseup', onEnd);
+      // Touch
+      slideThumb.addEventListener('touchstart', (e) => onDown(e.touches[0].clientX));
+      document.addEventListener('touchmove', (e) => onMove(e.touches[0].clientX));
+      document.addEventListener('touchend', onEnd);
+    }
+  } else if (eventDeleteSection) {
+    eventDeleteSection.style.display = 'none';
+  }
 }
 
 function hideEventForm() {
@@ -2708,23 +2939,23 @@ async function renderEventDetailPage() {
         </div>
         
         <!-- Links Section -->
-        ${event.trackWebsite || event.liveRcEventUrl ? `
+        ${event.trackWebsite || event.liveRcEventUrl || (track && (track.websiteUrl || track.liveRcUrl)) ? `
           <div class="page-content" style="margin-bottom: 16px;">
             <h3>Links</h3>
             <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
-              ${event.trackWebsite ? `
+              ${event.trackWebsite || (track && track.websiteUrl) ? `
                 <div>
                   <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 6px;">Track Website</div>
-                  <a href="${escapeHtml(event.trackWebsite)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
+                  <a href="${escapeHtml(event.trackWebsite || track.websiteUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
                     🌐 Visit Track Website
                   </a>
                 </div>
               ` : ''}
-              ${event.liveRcEventUrl ? `
+              ${event.liveRcEventUrl || (track && track.liveRcUrl) ? `
                 <div>
-                  <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 6px;">LiveRC Event</div>
-                  <a href="${escapeHtml(event.liveRcEventUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
-                    📺 View on LiveRC
+                  <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 6px;">LiveRC ${event.liveRcEventUrl ? 'Event' : 'Stream'}</div>
+                  <a href="${escapeHtml(event.liveRcEventUrl || track.liveRcUrl)}" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration: none;">
+                    📺 ${event.liveRcEventUrl ? 'View on LiveRC' : 'Open LiveRC'}
                   </a>
                 </div>
               ` : ''}
@@ -3544,6 +3775,18 @@ async function renderEventsPage() {
               <button type="submit" class="btn" ${tracks.length === 0 ? 'disabled' : ''}>Save Event</button>
               <button type="button" class="btn btn-secondary" id="cancelEventBtn">Cancel</button>
             </div>
+            
+            <!-- Event Delete Section (shown only in edit mode) -->
+            <div id="eventDeleteSection" style="display: none; margin-top: 24px; padding-top: 24px; border-top: 2px solid var(--border-color);">
+              <div id="eventSlideContainer" class="slide-delete" style="position: relative; height: 50px; background: linear-gradient(90deg, #ff6666, #ff4444); border-radius: 12px; overflow: hidden; touch-action: none; user-select: none; cursor: grab;">
+                <div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 16px;">
+                  Slide To Delete
+                </div>
+                <div id="eventSlideThumb" style="position: absolute; left: 0; top: 0; height: 100%; width: 60px; background: rgba(0,0,0,0.15); border-radius: 12px 0 0 12px; display: flex; align-items: center; justify-content: center; cursor: grab; color: white; font-size: 24px; transition: width 0.2s, box-shadow 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                  🗑️
+                </div>
+              </div>
+            </div>
           </form>
         </div>
         
@@ -3571,7 +3814,6 @@ async function renderEventsPage() {
                     <div class="event-actions">
                       
                       <button class="btn-icon" data-action="edit" data-id="${event.id}" title="Edit">✏️</button>
-                      <button class="btn-icon" data-action="delete" data-id="${event.id}" title="Delete">🗑️</button>
                     </div>
                   </div>
                 `;
@@ -3725,6 +3967,18 @@ async function renderTracksPage() {
               <button type="button" class="btn btn-secondary" id="cancelTrackBtn">Cancel</button>
             </div>
           </form>
+          
+          <!-- Delete Section (shown only in edit mode) -->
+          <div id="trackDeleteSection" style="display: none; margin-top: 24px; padding-top: 24px; border-top: 2px solid var(--border-color);">
+            <div id="slideDeleteContainer" class="slide-delete" style="position: relative; height: 50px; background: linear-gradient(90deg, #ff6666, #ff4444); border-radius: 12px; overflow: hidden; touch-action: none; user-select: none; cursor: grab;">
+              <div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 16px;">
+                Slide To Delete
+              </div>
+              <div id="slideDeleteThumb" style="position: absolute; left: 0; top: 0; height: 100%; width: 60px; background: rgba(0,0,0,0.15); border-radius: 12px 0 0 12px; display: flex; align-items: center; justify-content: center; cursor: grab; color: white; font-size: 24px; transition: width 0.2s, box-shadow 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                🗑️
+              </div>
+            </div>
+          </div>
         </div>
         
         <!-- Track List -->
@@ -3746,9 +4000,7 @@ async function renderTracksPage() {
                     ${track.liveRcUrl ? `<div class="track-detail"><a href="${escapeHtml(track.liveRcUrl)}" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color); text-decoration: none;">📺 LiveRC</a></div>` : ''}
                   </div>
                   <div class="track-actions">
-                    
                     <button class="btn-icon" data-action="edit" data-id="${track.id}" title="Edit">✏️</button>
-                    <button class="btn-icon" data-action="delete" data-id="${track.id}" title="Delete">🗑️</button>
                   </div>
                 </div>
               `).join('')}
@@ -5070,7 +5322,7 @@ async function renderSettingsPage() {
         <div class="page-content" style="margin-bottom: 16px;">
           <h3 style="margin-bottom: 12px;">App Information</h3>
           <div class="detail-row">
-            <strong>Version:</strong> 1.1.2
+            <strong>Version:</strong> 1.1.3
           </div>
           <div class="detail-row">
             <strong>Database:</strong> rc_program v1
