@@ -545,6 +545,11 @@ function hideCarForm() {
 async function handleCarSubmit(e) {
   e.preventDefault();
   
+  // Validate required fields
+  if (!validateFormFields('#carFormElement', ['carName'])) {
+    return;
+  }
+  
   const id = document.getElementById('carId').value;
   const carData = {
     id: id || generateId('car'),
@@ -700,6 +705,34 @@ function setupImageCapture() {
       toast('Photo removed');
     });
   }
+}
+
+// Validation helper: Check for empty required fields and scroll to the first one
+function validateFormFields(formElement, requiredFieldIds) {
+  const form = document.querySelector(formElement);
+  if (!form) return true; // Form not found, assume valid
+  
+  for (const fieldId of requiredFieldIds) {
+    const field = document.getElementById(fieldId);
+    if (!field) continue;
+    
+    const value = field.value?.trim?.() || '';
+    if (!value) {
+      // Scroll to the field
+      field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      field.focus();
+      field.style.outline = '2px solid var(--error-color, #ff4444)';
+      field.style.outlineOffset = '2px';
+      // Remove outline after animation
+      setTimeout(() => {
+        field.style.outline = '';
+        field.style.outlineOffset = '';
+      }, 2000);
+      toast(`Required field "${field.placeholder || field.name || fieldId}" is empty`);
+      return false;
+    }
+  }
+  return true;
 }
 
 // HTML escape helper
@@ -2136,6 +2169,11 @@ function hideTrackForm() {
 async function handleTrackSubmit(e) {
   e.preventDefault();
   
+  // Validate required fields
+  if (!validateFormFields('#trackFormElement', ['trackName'])) {
+    return;
+  }
+  
   const id = document.getElementById('trackId').value;
   const trackData = {
     id: id || generateId('track'),
@@ -2587,6 +2625,11 @@ function hideEventForm() {
 
 async function handleEventSubmit(e) {
   e.preventDefault();
+  
+  // Validate required fields
+  if (!validateFormFields('#eventFormElement', ['eventTitle', 'eventTrackId', 'eventDate'])) {
+    return;
+  }
   
   const id = document.getElementById('eventId').value;
   const selectedCarIds = Array.from(document.querySelectorAll('.car-select-btn.selected')).map(btn => btn.dataset.carId);
