@@ -2311,12 +2311,23 @@ function showEventForm(event = null) {
     document.getElementById('eventId').value = '';
   }
 
-  // Sync car selections for the event (add: none selected; edit: selected IDs checked)
-  const carCheckboxes = document.querySelectorAll('input[name="eventCars"]');
-  if (carCheckboxes && carCheckboxes.length > 0) {
+  // Sync car selections for the event (add: none selected; edit: selected IDs)
+  const carButtons = document.querySelectorAll('.car-select-btn');
+  if (carButtons && carButtons.length > 0) {
     const selectedIds = Array.isArray(event?.carIds) ? event.carIds : [];
-    carCheckboxes.forEach(cb => {
-      cb.checked = selectedIds.includes(cb.value);
+    carButtons.forEach(btn => {
+      const carId = btn.dataset.carId;
+      if (selectedIds.includes(carId)) {
+        btn.classList.add('selected');
+        btn.style.borderColor = 'var(--primary-color)';
+        btn.style.backgroundColor = 'var(--primary-color)';
+        btn.style.color = '#ffffff';
+      } else {
+        btn.classList.remove('selected');
+        btn.style.borderColor = 'var(--border-color)';
+        btn.style.backgroundColor = 'var(--bg-card)';
+        btn.style.color = 'var(--text-primary)';
+      }
     });
   }
   
@@ -2347,7 +2358,7 @@ async function handleEventSubmit(e) {
   e.preventDefault();
   
   const id = document.getElementById('eventId').value;
-  const selectedCarIds = Array.from(document.querySelectorAll('input[name="eventCars"]:checked')).map(cb => cb.value);
+  const selectedCarIds = Array.from(document.querySelectorAll('.car-select-btn.selected')).map(btn => btn.dataset.carId);
   const eventData = {
     id: id || generateId('event'),
     title: document.getElementById('eventTitle').value.trim(),
@@ -2681,9 +2692,9 @@ async function renderEventDetailPage() {
             ${eventCars.length ? `
               <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;">
                 ${eventCars.map(car => `
-                  <span style="border:1px solid var(--border-color); border-radius:12px; padding:6px 10px; display:inline-flex; gap:6px; align-items:center;">
-                    ${escapeHtml(car.name)}
-                    ${car.transponder ? `<span style="color: var(--text-secondary); font-size:12px;">(${escapeHtml(car.transponder)})</span>` : ''}
+                  <span style="border:1px solid var(--border-color); border-radius:12px; padding:6px 10px; display:flex; flex-direction:column; gap:2px;">
+                    <span style="font-weight:500;">${escapeHtml(car.name)}</span>
+                    ${car.transponder ? `<span style="font-size:11px; opacity:0.7;">Transponder: ${escapeHtml(car.transponder)}</span>` : '<span style="font-size:11px; opacity:0.7;">No transponder</span>'}
                   </span>
                 `).join('')}
               </div>
@@ -3504,15 +3515,15 @@ async function renderEventsPage() {
                   No cars available. <a href="#/garage" style="color: var(--primary-color);">Add cars first</a>
                 </p>
               ` : `
-                <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                <div id="eventCarsContainer" style="display:flex; flex-wrap:wrap; gap:8px;">
                   ${cars.map(car => `
-                    <label style="display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border-color); border-radius:12px; padding:6px 10px;">
-                      <input type="checkbox" name="eventCars" value="${car.id}" style="margin:0;">
-                      <span>${escapeHtml(car.name)}${car.transponder ? `<span style="color: var(--text-secondary); font-size:12px;"> (${escapeHtml(car.transponder)})</span>` : ''}</span>
-                    </label>
+                    <button type="button" class="car-select-btn" data-car-id="${car.id}" style="display:flex; flex-direction:column; align-items:flex-start; gap:2px; border:2px solid var(--border-color); border-radius:12px; padding:8px 12px; background:var(--bg-card); cursor:pointer; transition: all 0.2s; font-size: 14px;">
+                      <span style="display:block; font-weight:500;">${escapeHtml(car.name)}</span>
+                      <span style="display:block; font-size:11px; opacity:0.7;">${car.transponder ? `Transponder: ${escapeHtml(car.transponder)}` : 'No transponder'}</span>
+                    </button>
                   `).join('')}
                 </div>
-                <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">Select the cars you'll run at this event.</div>
+                <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">Tap cars to select/deselect for this event.</div>
               `}
             </div>
             <div class="form-group">
@@ -3575,6 +3586,28 @@ async function renderEventsPage() {
     document.getElementById('addEventBtn')?.addEventListener('click', () => showEventForm());
     document.getElementById('cancelEventBtn')?.addEventListener('click', hideEventForm);
     document.getElementById('eventFormElement')?.addEventListener('submit', handleEventSubmit);
+    
+    // Add click handlers for car selection buttons
+    document.querySelectorAll('.car-select-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const button = e.currentTarget;
+        const isSelected = button.classList.contains('selected');
+        
+        if (isSelected) {
+          // Deselect
+          button.classList.remove('selected');
+          button.style.borderColor = 'var(--border-color)';
+          button.style.backgroundColor = 'var(--bg-card)';
+          button.style.color = 'var(--text-primary)';
+        } else {
+          // Select
+          button.classList.add('selected');
+          button.style.borderColor = 'var(--primary-color)';
+          button.style.backgroundColor = 'var(--primary-color)';
+          button.style.color = '#ffffff';
+        }
+      });
+    });
     
     // Auto-populate track website and LiveRC URL when track is selected
     document.getElementById('eventTrackId')?.addEventListener('change', async (e) => {
