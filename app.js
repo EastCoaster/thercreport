@@ -3166,16 +3166,21 @@ async function renderEventDetailPage() {
               </div>
             </div>
             <div class="form-group">
+              <label for="runLogTires">Tires</label>
+              <input type="text" id="runLogTires" placeholder="e.g. 2.2 Rear (soft)">
+              <div class="form-hint" style="margin-top:6px;font-size:12px;color:var(--text-secondary);">Record the tires used for this run (separate from setup).</div>
+            </div>
+            <div class="form-group">
               <label>Track Conditions</label>
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <button type="button" class="track-condition-btn" data-condition="highGrip" style="padding: 16px; font-size: 16px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
+                  🧱 High Grip
+                </button>
                 <button type="button" class="track-condition-btn" data-condition="fast" style="padding: 16px; font-size: 16px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
                   🚀 Fast
                 </button>
                 <button type="button" class="track-condition-btn" data-condition="loose" style="padding: 16px; font-size: 16px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
                   ⚠️ Loose
-                </button>
-                <button type="button" class="track-condition-btn" data-condition="tractionRoll" style="padding: 16px; font-size: 16px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
-                  🧱 Traction Roll
                 </button>
                 <button type="button" class="track-condition-btn" data-condition="slow" style="padding: 16px; font-size: 16px; border: 2px solid var(--border-color); border-radius: 8px; background: var(--bg-card); cursor: pointer; transition: all 0.2s;">
                   🐢 Slow
@@ -3224,6 +3229,7 @@ async function renderEventDetailPage() {
                       <div class="runlog-stats">
                         ${log.bestLap ? `<span class="stat-badge">Best: ${escapeHtml(log.bestLap)}</span>` : ''}
                         ${log.time ? `<span class="stat-badge">Time: ${log.time.toFixed(2)}s</span>` : ''}
+                        ${log.tires ? `<span class="stat-badge">Tires: ${escapeHtml(log.tires)}</span>` : ''}
                         ${log.totalLaps ? `<span class="stat-badge">${log.totalLaps} laps</span>` : ''}
                         ${log.avgLap ? `<span class="stat-badge">Avg: ${escapeHtml(log.avgLap)}</span>` : ''}
                         ${log.position ? `<span class="stat-badge">Position: ${escapeHtml(log.position)}</span>` : ''}
@@ -3231,7 +3237,7 @@ async function renderEventDetailPage() {
                       ${log.trackConditions && log.trackConditions.length > 0 ? `
                         <div class="runlog-conditions" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
                           ${log.trackConditions.map(condition => {
-                            const icons = { fast: '🚀 Fast', loose: '⚠️ Loose', tractionRoll: '🧱 Traction Roll', slow: '🐢 Slow' };
+                            const icons = { fast: '🚀 Fast', loose: '⚠️ Loose', highGrip: '🧱 High Grip', slow: '🐢 Slow' };
                             return `<span class="stat-badge" style="background: var(--primary-color-light, rgba(25, 118, 210, 0.1)); border: 1px solid var(--primary-color);">${icons[condition] || condition}</span>`;
                           }).join('')}
                         </div>
@@ -3377,6 +3383,7 @@ function showRunLogForm(eventId, runLog = null, preSelectedCarId = null) {
     document.getElementById('runLogSessionType').value = runLog.sessionType || '';
     document.getElementById('runLogBestLap').value = runLog.bestLap || '';
     document.getElementById('runLogTime').value = runLog.time || '';
+    document.getElementById('runLogTires').value = runLog.tires || '';
     document.getElementById('runLogTotalLaps').value = runLog.totalLaps || '';
     document.getElementById('runLogPosition').value = runLog.position || '';
     document.getElementById('runLogNotes').value = runLog.notes || '';
@@ -3483,6 +3490,8 @@ async function handleRunLogSubmit(e) {
   const selectedConditions = Array.from(document.querySelectorAll('.track-condition-btn')).filter(btn => {
     return btn.style.borderColor === 'rgb(25, 118, 210)' || btn.style.borderColor === 'var(--primary-color)';
   }).map(btn => btn.dataset.condition);
+  // Collect tires value
+  const tiresValue = document.getElementById('runLogTires') ? document.getElementById('runLogTires').value.trim() : '';
   
   const runLogData = {
     id: id || generateId('runlog'),
@@ -3496,6 +3505,7 @@ async function handleRunLogSubmit(e) {
     time: timeSeconds,
     position: document.getElementById('runLogPosition').value.trim(),
     notes: document.getElementById('runLogNotes').value.trim(),
+    tires: tiresValue || null,
     trackConditions: selectedConditions,
     updatedAt: new Date().toISOString()
   };
@@ -6051,6 +6061,12 @@ async function bootstrap() {
   try {
     await dbInit();
     console.log('✅ Database initialized');
+    // Run one-time migrations for stored data
+    try {
+      await migrateTractionRollToHighGrip();
+    } catch (err) {
+      console.warn('⚠️ Migration migrateTractionRollToHighGrip failed:', err);
+    }
   } catch (error) {
     console.error('❌ Database initialization failed:', error);
     toast('Database initialization failed');
@@ -6107,6 +6123,25 @@ async function bootstrap() {
   router();
   
   console.log('✅ App ready!');
+}
+
+// Migration: convert any saved runLogs using legacy 'tractionRoll' condition to 'highGrip'
+async function migrateTractionRollToHighGrip() {
+  try {
+    const runLogs = await getAll('runLogs');
+    let migrated = 0;
+    for (const log of runLogs) {
+      if (log && Array.isArray(log.trackConditions) && log.trackConditions.includes('tractionRoll')) {
+        log.trackConditions = log.trackConditions.map(c => c === 'tractionRoll' ? 'highGrip' : c);
+        await put('runLogs', log);
+        migrated++;
+      }
+    }
+    if (migrated) console.log(`🔧 Migrated ${migrated} runLogs: tractionRoll -> highGrip`);
+  } catch (err) {
+    console.error('❌ Error running migration migrateTractionRollToHighGrip:', err);
+    throw err;
+  }
 }
 
 // Start the app when DOM is ready
