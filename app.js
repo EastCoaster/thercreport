@@ -1,6 +1,53 @@
 import { dbInit, add, put, get, getAll, remove, generateId, queryIndex, normalizeSetupData, clearAllStores, resetDatabase } from './db.js';
 import { diffObjects } from './diff.js';
 import { parseLap, aggregateRuns, groupRunsByEvent } from './stats.js';
+
+// Lightweight in-memory data cache for hot paths (invalidated on writes)
+const DataCache = {
+  stores: new Map(),
+  getStore(store) {
+    if (!this.stores.has(store)) this.stores.set(store, new Map());
+    return this.stores.get(store);
+  },
+  async getAll(store) {
+    const s = this.getStore(store);
+    // Cache the full list under a special key '*'
+    if (s.has('*')) return s.get('*');
+    const list = await getAll(store);
+    s.set('*', list);
+    return list;
+  },
+  async get(store, id) {
+    const s = this.getStore(store);
+    if (s.has(id)) return s.get(id);
+    const item = await get(store, id);
+    if (item) s.set(id, item);
+    return item;
+  },
+  async put(store, item) {
+    await put(store, item);
+    const s = this.getStore(store);
+    s.delete('*'); // invalidate list
+    if (item?.id) s.set(item.id, item);
+    invalidateAnalyticsDataCache?.();
+  },
+  async remove(store, id) {
+    await remove(store, id);
+    const s = this.getStore(store);
+    s.delete('*');
+    s.delete(id);
+    invalidateAnalyticsDataCache?.();
+  }
+};
+
+// Utility: prefer idle time for heavy work when available
+function runWhenIdle(fn) {
+  if (typeof window.requestIdleCallback === 'function') {
+    requestIdleCallback(() => fn());
+  } else {
+    setTimeout(() => fn(), 0);
+  }
+}
 import { renderLineChart, renderBarChart } from './charts.js';
 import * as Calculators from './tools/calculators.js';
 
@@ -246,8 +293,8 @@ async function renderGaragePage() {
   `;
   
   try {
-    // Load cars from database
-    const cars = await getAll('cars');
+    // Load cars from database (cached)
+    const cars = await DataCache.getAll('cars');
     
     // Sort by name
     cars.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -386,7 +433,8 @@ async function renderGaragePage() {
         } else if (action === 'edit') {
           editCar(id);
         } else if (action === 'delete') {
-          deleteCar(id);
+          // Deletion moved to edit form via slide-to-delete
+          editCar(id);
         }
       });
     });
@@ -570,7 +618,7 @@ async function handleCarSubmit(e) {
   }
   
   try {
-    await put('cars', carData);
+    await DataCache.put('cars', carData);
     toast(id ? 'Car updated!' : 'Car added!');
     hideCarForm();
     renderGaragePage();
@@ -582,7 +630,7 @@ async function handleCarSubmit(e) {
 
 async function editCar(id) {
   try {
-    const car = await get('cars', id);
+    const car = await DataCache.get('cars', id);
     if (car) {
       showCarForm(car);
     } else {
@@ -600,7 +648,7 @@ async function deleteCar(id) {
   }
   
   try {
-    await remove('cars', id);
+    await DataCache.remove('cars', id);
     toast('Car deleted');
     renderGaragePage();
   } catch (error) {
@@ -672,15 +720,60 @@ function setupImageCapture() {
   if (captureBtn) captureBtn.style.display = isMobile ? 'inline-block' : 'none';
   if (uploadBtn) uploadBtn.style.display = 'inline-block';
 
+  let imgWorker = null;
+  const ensureWorker = () => {
+    if (imgWorker) return imgWorker;
+    try {
+      imgWorker = new Worker('imageWorker.js');
+    } catch (e) {
+      imgWorker = null;
+    }
+    return imgWorker;
+  };
+
+  const blobToDataURL = (blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+
   const processFile = async (file, sourceLabel = 'Photo added') => {
     if (!file) return;
     try {
-      // Resize to the same constraints used for camera capture
-      const resizedDataUrl = await resizeImage(file, 320, 0.75);
-      currentCarImage = resizedDataUrl;
-      preview.innerHTML = `<img src="${resizedDataUrl}" style="max-width: 100%; max-height: 200px; border-radius: 6px; box-shadow: var(--shadow-sm);">`;
-      if (removeBtn) removeBtn.style.display = 'inline-block';
-      toast(sourceLabel);
+      const worker = ensureWorker();
+      if (worker && typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap === 'function') {
+        const blob = file instanceof Blob ? file : new Blob([file]);
+        const resizedBlob = await new Promise((resolve, reject) => {
+          const onMessage = (e) => {
+            const { ok, blob: outBlob, error } = e.data || {};
+            worker.removeEventListener('message', onMessage);
+            worker.removeEventListener('error', onError);
+            if (ok) resolve(outBlob); else reject(new Error(error || 'Worker resize failed'));
+          };
+          const onError = (err) => {
+            worker.removeEventListener('message', onMessage);
+            worker.removeEventListener('error', onError);
+            reject(err);
+          };
+          worker.addEventListener('message', onMessage);
+          worker.addEventListener('error', onError);
+          // Note: Blob is not transferable; rely on structured clone.
+          worker.postMessage({ blob, width: 320, quality: 0.75 });
+        });
+        const resizedDataUrl = await blobToDataURL(resizedBlob);
+        currentCarImage = resizedDataUrl;
+        preview.innerHTML = `<img src="${resizedDataUrl}" style="max-width: 100%; max-height: 200px; border-radius: 6px; box-shadow: var(--shadow-sm);">`;
+        if (removeBtn) removeBtn.style.display = 'inline-block';
+        toast(sourceLabel);
+      } else {
+        // Fallback to main-thread resize
+        const resizedDataUrl = await resizeImage(file, 320, 0.75);
+        currentCarImage = resizedDataUrl;
+        preview.innerHTML = `<img src="${resizedDataUrl}" style="max-width: 100%; max-height: 200px; border-radius: 6px; box-shadow: var(--shadow-sm);">`;
+        if (removeBtn) removeBtn.style.display = 'inline-block';
+        toast(sourceLabel);
+      }
     } catch (error) {
       console.error('Failed to process image:', error);
       toast('Failed to process image');
@@ -2192,7 +2285,7 @@ async function handleTrackSubmit(e) {
   }
   
   try {
-    await put('tracks', trackData);
+    await DataCache.put('tracks', trackData);
     toast(id ? 'Track updated!' : 'Track added!');
     hideTrackForm();
     renderTracksPage();
@@ -2204,7 +2297,7 @@ async function handleTrackSubmit(e) {
 
 async function editTrack(id) {
   try {
-    const track = await get('tracks', id);
+    const track = await DataCache.get('tracks', id);
     if (track) {
       showTrackForm(track);
     } else {
@@ -2222,7 +2315,7 @@ async function deleteTrack(id) {
   }
   
   try {
-    await remove('tracks', id);
+    await DataCache.remove('tracks', id);
     toast('Track deleted');
     renderTracksPage();
   } catch (error) {
@@ -2652,7 +2745,7 @@ async function handleEventSubmit(e) {
   }
   
   try {
-    await put('events', eventData);
+    await DataCache.put('events', eventData);
     toast(id ? 'Event updated!' : 'Event added!');
     hideEventForm();
     renderEventsPage();
@@ -2664,7 +2757,7 @@ async function handleEventSubmit(e) {
 
 async function editEvent(id) {
   try {
-    const event = await get('events', id);
+    const event = await DataCache.get('events', id);
     if (event) {
       showEventForm(event);
     } else {
@@ -2682,7 +2775,7 @@ async function deleteEvent(id) {
   }
   
   try {
-    await remove('events', id);
+    await DataCache.remove('events', id);
     toast('Event deleted');
     renderEventsPage();
   } catch (error) {
@@ -3731,17 +3824,17 @@ async function renderEventsPage() {
   `;
   
   try {
-    // Load events from database
-    const events = await getAll('events');
+    // Load events from database (cached)
+    const events = await DataCache.getAll('events');
     
     // Leave events unsorted for now; we'll sort per-section after grouping
     
     // Load tracks for the select dropdown
-    const tracks = await getAll('tracks');
+    const tracks = await DataCache.getAll('tracks');
     tracks.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     // Load cars for event selection
-    const cars = await getAll('cars');
+    const cars = await DataCache.getAll('cars');
     cars.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     
     // Render page
@@ -3872,27 +3965,26 @@ async function renderEventsPage() {
     document.getElementById('cancelEventBtn')?.addEventListener('click', hideEventForm);
     document.getElementById('eventFormElement')?.addEventListener('submit', handleEventSubmit);
     
-    // Add click handlers for car selection buttons
-    document.querySelectorAll('.car-select-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const button = e.currentTarget;
+    // Event delegation for car selection buttons (reduces listeners)
+    const carsContainer = document.getElementById('eventCarsContainer');
+    if (carsContainer) {
+      carsContainer.addEventListener('click', (e) => {
+        const button = e.target.closest('.car-select-btn');
+        if (!button) return;
         const isSelected = button.classList.contains('selected');
-        
         if (isSelected) {
-          // Deselect
           button.classList.remove('selected');
           button.style.borderColor = 'var(--border-color)';
           button.style.backgroundColor = 'var(--bg-card)';
           button.style.color = 'var(--text-primary)';
         } else {
-          // Select
           button.classList.add('selected');
           button.style.borderColor = 'var(--primary-color)';
           button.style.backgroundColor = 'var(--primary-color)';
           button.style.color = '#ffffff';
         }
       });
-    });
+    }
     
     // Auto-populate track website and LiveRC URL when track is selected
     document.getElementById('eventTrackId')?.addEventListener('change', async (e) => {
@@ -3962,8 +4054,8 @@ async function renderTracksPage() {
   `;
   
   try {
-    // Load tracks from database
-    const tracks = await getAll('tracks');
+    // Load tracks from database (cached)
+    const tracks = await DataCache.getAll('tracks');
     
     // Sort by name
     tracks.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -5252,8 +5344,7 @@ function generateInsights(runs, kpis, trackStats) {
 function buildInsightCards(filteredRuns, analyticsContext) {
   const cards = [];
   if (!filteredRuns || filteredRuns.length === 0) return cards;
-  const { carsById, tracksById } = analyticsContext;
-  
+  const { carsById, tracksById } = analyticsContext;  
   // Best track by lowest avg lap
   const trackAgg = new Map();
   filteredRuns.forEach(run => {
