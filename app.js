@@ -5475,7 +5475,7 @@ async function renderSettingsPage() {
         <div class="page-content" style="margin-bottom: 16px;">
           <h3 style="margin-bottom: 12px;">App Information</h3>
           <div class="detail-row">
-            <strong>Version:</strong> 1.1.3
+            <strong>Version:</strong> 1.1.4
           </div>
           <div class="detail-row">
             <strong>Database:</strong> rc_program v1
