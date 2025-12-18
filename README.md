@@ -307,7 +307,7 @@ playwright install chromium
 
 ## 🎯 Roadmap
 
-### Planned Features
+### Possible Features
 - 📡 **Cloud Sync** – Optional Firebase/Supabase integration
 - 🎬 **Video Support** – Embed race video clips
 - 📊 **Advanced Charts** – Lap time trends, position heatmaps
